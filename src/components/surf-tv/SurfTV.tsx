@@ -35,7 +35,7 @@ function ChannelBackground({ channel }: { channel: Channel }) {
     <div
       className="absolute inset-0 transition-colors duration-500"
       style={{
-        background: `radial-gradient(120% 80% at 30% 20%, rgba(${r},${g},${b},0.55) 0%, rgba(${r},${g},${b},0.18) 45%, rgba(8,8,10,0.95) 80%), #08080a`,
+        background: `radial-gradient(150% 130% at 30% 20%, rgba(${r},${g},${b},0.6) 0%, rgba(${r},${g},${b},0.35) 40%, rgba(${r},${g},${b},0.15) 70%, rgba(8,8,10,0.9) 100%), #08080a`,
       }}
     >
       <div className="absolute inset-0 opacity-[0.08] mix-blend-overlay" style={{
@@ -193,9 +193,8 @@ export function SurfTV(_props: Props = {} as Props) {
         <div className="absolute bottom-8 left-6 md:bottom-12 md:left-10 z-10 max-w-2xl">
           {current && (
             <>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/60">Now Playing</div>
               <h1
-                className="mt-2 text-5xl md:text-7xl leading-[0.95]"
+                className="text-5xl md:text-7xl leading-[0.95]"
                 style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.02em' }}
               >
                 {current.title}
@@ -345,6 +344,12 @@ function FullGuide({
   onRestore: (channelId: string) => void;
 }) {
   const removed = CHANNELS.filter((c) => !channels.some((x) => x.id === c.id));
+  const slotOffsetsMin = [0, 30, 60, 90];
+  const slotTimes = slotOffsetsMin.map((mins) => {
+    const d = new Date(Date.now() + mins * 60 * 1000);
+    d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  });
   return (
     <div className="fixed inset-0 z-50 bg-[#08080a]/97 backdrop-blur-md">
       <div className="flex h-full flex-col">
@@ -417,10 +422,14 @@ function FullGuide({
                       <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
                         {s.year} · {s.genre}
                       </div>
-                      {i === 0 && (
+                      {i === 0 ? (
                         <div className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: ACCENT }}>
                           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ACCENT }} />
                           Live
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-[10px] uppercase tracking-[0.25em] text-white/50">
+                          Starts {slotTimes[i]}
                         </div>
                       )}
                     </button>
