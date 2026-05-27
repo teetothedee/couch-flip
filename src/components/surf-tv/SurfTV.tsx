@@ -298,12 +298,15 @@ function FullGuide({
   activeId,
   onPick,
   onClose,
+  onRestore,
 }: {
   channels: Channel[];
   activeId: string;
   onPick: (channelId: string, slotIdx: number) => void;
   onClose: () => void;
+  onRestore: (channelId: string) => void;
 }) {
+  const removed = CHANNELS.filter((c) => !channels.some((x) => x.id === c.id));
   return (
     <div className="fixed inset-0 z-50 bg-[#08080a]/97 backdrop-blur-md">
       <div className="flex h-full flex-col">
@@ -387,6 +390,68 @@ function FullGuide({
                 </div>
               );
             })}
+          </div>
+
+          {/* Manage Channels */}
+          <div className="mt-12 border-t border-white/10 pt-6">
+            <div className="flex items-baseline justify-between">
+              <h3
+                className="text-2xl md:text-3xl"
+                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}
+              >
+                Manage Channels
+              </h3>
+              <span className="text-xs uppercase tracking-[0.25em] text-white/50">
+                {channels.length} active · {removed.length} removed
+              </span>
+            </div>
+            <p className="mt-1 text-xs uppercase tracking-[0.25em] text-white/40">
+              Bring back anything you've cut from the dial
+            </p>
+
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {CHANNELS.map((c) => {
+                const isActive = channels.some((x) => x.id === c.id);
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="inline-block h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: c.color }}
+                      />
+                      <span className="text-xl">{c.emoji}</span>
+                      <div className="min-w-0">
+                        <div
+                          className="truncate text-sm"
+                          style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}
+                        >
+                          {c.name}
+                        </div>
+                        <div className="mt-0.5 text-[10px] uppercase tracking-[0.25em] text-white/40">
+                          {isActive ? 'On the dial' : 'Removed'}
+                        </div>
+                      </div>
+                    </div>
+                    {isActive ? (
+                      <span className="shrink-0 rounded-sm border border-white/15 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-white/50">
+                        Active
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => onRestore(c.id)}
+                        className="shrink-0 rounded-sm px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110"
+                        style={{ backgroundColor: ACCENT }}
+                      >
+                        + Add
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
