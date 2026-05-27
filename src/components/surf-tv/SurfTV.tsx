@@ -422,10 +422,14 @@ function FullGuide({
                       <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
                         {s.year} · {s.genre}
                       </div>
-                      {i === 0 && (
+                      {i === 0 ? (
                         <div className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: ACCENT }}>
                           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ACCENT }} />
                           Live
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-[10px] uppercase tracking-[0.25em] text-white/50">
+                          Starts {slotTimes[i]}
                         </div>
                       )}
                     </button>
