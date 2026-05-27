@@ -35,7 +35,7 @@ function ChannelBackground({ channel }: { channel: Channel }) {
     <div
       className="absolute inset-0 transition-colors duration-500"
       style={{
-        background: `radial-gradient(120% 80% at 30% 20%, rgba(${r},${g},${b},0.55) 0%, rgba(${r},${g},${b},0.18) 45%, rgba(8,8,10,0.95) 80%), #08080a`,
+        background: `radial-gradient(150% 130% at 30% 20%, rgba(${r},${g},${b},0.6) 0%, rgba(${r},${g},${b},0.35) 40%, rgba(${r},${g},${b},0.15) 70%, rgba(8,8,10,0.9) 100%), #08080a`,
       }}
     >
       <div className="absolute inset-0 opacity-[0.08] mix-blend-overlay" style={{
