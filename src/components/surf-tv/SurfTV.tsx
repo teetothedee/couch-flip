@@ -2,6 +2,24 @@ import { useCallback, useEffect, useState } from "react";
 import { CHANNELS, TIME_SLOTS, type Channel, type Show } from "../../lib/channels";
 
 const ACCENT = "#e85d26";
+const STORAGE_KEY = "surf-tv:channel-order:v1";
+
+function loadChannels(): Channel[] {
+  if (typeof window === "undefined") return CHANNELS;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return CHANNELS;
+    const ids = JSON.parse(raw);
+    if (!Array.isArray(ids)) return CHANNELS;
+    const byId = new Map(CHANNELS.map((c) => [c.id, c]));
+    const restored = ids
+      .filter((id): id is string => typeof id === "string" && byId.has(id))
+      .map((id) => byId.get(id)!);
+    return restored.length > 0 ? restored : CHANNELS;
+  } catch {
+    return CHANNELS;
+  }
+}
 
 function hexToRgb(hex: string) {
   const h = hex.replace("#", "");
@@ -43,7 +61,27 @@ function LiveDot() {
 type Props = Record<string, never>;
 
 export function SurfTV(_props: Props = {} as Props) {
-  const [channels, setChannels] = useState(CHANNELS);
+  const [channels, setChannels] = useState<Channel[]>(CHANNELS);
+
+  // Hydrate from localStorage after mount to avoid SSR mismatches.
+  useEffect(() => {
+    const stored = loadChannels();
+    setChannels(stored);
+  }, []);
+
+  // Persist channel order/membership whenever it changes.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(channels.map((c) => c.id)),
+      );
+    } catch {
+      // ignore quota / private-mode errors
+    }
+  }, [channels]);
+
   const [index, setIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(false);
   const [parked, setParked] = useState<Record<string, number>>({});
