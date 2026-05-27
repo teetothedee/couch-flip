@@ -251,6 +251,18 @@ export function SurfTV(_props: Props = {} as Props) {
             setToast(`${ch.name} · ${TIME_SLOTS[slotIdx]}`);
           }}
           onClose={() => setShowGuide(false)}
+          onRestore={(channelId) => {
+            setChannels((cs) => {
+              if (cs.some((c) => c.id === channelId)) return cs;
+              // Re-insert preserving the original CHANNELS order
+              const next = CHANNELS.filter(
+                (c) => c.id === channelId || cs.some((x) => x.id === c.id),
+              );
+              return next;
+            });
+            const restored = CHANNELS.find((c) => c.id === channelId);
+            if (restored) setToast(`Restored ${restored.name}`);
+          }}
         />
       )}
     </div>
