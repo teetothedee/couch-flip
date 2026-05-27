@@ -193,9 +193,8 @@ export function SurfTV(_props: Props = {} as Props) {
         <div className="absolute bottom-8 left-6 md:bottom-12 md:left-10 z-10 max-w-2xl">
           {current && (
             <>
-              <div className="text-xs uppercase tracking-[0.3em] text-white/60">Now Playing</div>
               <h1
-                className="mt-2 text-5xl md:text-7xl leading-[0.95]"
+                className="text-5xl md:text-7xl leading-[0.95]"
                 style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.02em' }}
               >
                 {current.title}
