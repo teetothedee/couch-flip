@@ -168,7 +168,7 @@ export function SurfTV(_props: Props = {} as Props) {
             </div>
             <div className="mt-1.5 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/70">
               <LiveDot />
-              <span>Live · Channel {String(index + 1).padStart(2, '0')}</span>
+              <span>Live</span>
             </div>
           </div>
         </div>
@@ -259,10 +259,6 @@ export function SurfTV(_props: Props = {} as Props) {
                 }`}
                 style={active ? { boxShadow: `0 0 0 2px ${ACCENT}` } : undefined}
               >
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: c.color }}
-                />
                 <span className="text-base">{c.emoji}</span>
                 <span
                   className="text-sm uppercase tracking-[0.15em] whitespace-nowrap"
