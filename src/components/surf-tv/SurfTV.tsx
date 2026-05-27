@@ -1,24 +1,38 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { CHANNELS, TIME_SLOTS, type Channel, type Show } from "../../lib/channels";
+import { fetchPlutoChannels } from "../../lib/pluto.functions";
+import { VideoPlayer } from "./VideoPlayer";
 
 const ACCENT = "#e85d26";
-const STORAGE_KEY = "surf-tv:channel-order:v1";
+const STORAGE_KEY = "surf-tv:state:v2";
 
-function loadChannels(): Channel[] {
-  if (typeof window === "undefined") return CHANNELS;
+type StoredState = { order: string[]; removed: string[] };
+
+function loadStored(): StoredState {
+  if (typeof window === "undefined") return { order: [], removed: [] };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return CHANNELS;
-    const ids = JSON.parse(raw);
-    if (!Array.isArray(ids)) return CHANNELS;
-    const byId = new Map(CHANNELS.map((c) => [c.id, c]));
-    const restored = ids
-      .filter((id): id is string => typeof id === "string" && byId.has(id))
-      .map((id) => byId.get(id)!);
-    return restored.length > 0 ? restored : CHANNELS;
+    if (!raw) return { order: [], removed: [] };
+    const p = JSON.parse(raw);
+    return {
+      order: Array.isArray(p.order)
+        ? p.order.filter((x: unknown): x is string => typeof x === "string")
+        : [],
+      removed: Array.isArray(p.removed)
+        ? p.removed.filter((x: unknown): x is string => typeof x === "string")
+        : [],
+    };
   } catch {
-    return CHANNELS;
+    return { order: [], removed: [] };
   }
+}
+
+function formatStart(iso?: string): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 function hexToRgb(hex: string) {
@@ -61,33 +75,66 @@ function LiveDot() {
 type Props = Record<string, never>;
 
 export function SurfTV(_props: Props = {} as Props) {
-  const [channels, setChannels] = useState<Channel[]>(CHANNELS);
+  const [pluto, setPluto] = useState<Channel[]>([]);
+  const [order, setOrder] = useState<string[]>([]);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [hydrated, setHydrated] = useState(false);
 
-  // Hydrate from localStorage after mount to avoid SSR mismatches.
-  useEffect(() => {
-    const stored = loadChannels();
-    setChannels(stored);
-  }, []);
+  const fetchPlutoFn = useServerFn(fetchPlutoChannels);
 
-  // Persist channel order/membership whenever it changes.
+  // Hydrate persisted state + fetch real Pluto channels on mount.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const s = loadStored();
+    setOrder(s.order);
+    setRemoved(new Set(s.removed));
+    setHydrated(true);
+    fetchPlutoFn()
+      .then((list) => setPluto(list))
+      .catch((err) => {
+        console.error("Could not load Pluto channels:", err);
+      });
+  }, [fetchPlutoFn]);
+
+  const pool: Channel[] = useMemo(() => [...CHANNELS, ...pluto], [pluto]);
+
+  const channels: Channel[] = useMemo(() => {
+    const byId = new Map(pool.map((c) => [c.id, c]));
+    const seen = new Set<string>();
+    const out: Channel[] = [];
+    for (const id of order) {
+      const c = byId.get(id);
+      if (c && !removed.has(id) && !seen.has(id)) {
+        out.push(c);
+        seen.add(id);
+      }
+    }
+    for (const c of pool) {
+      if (!seen.has(c.id) && !removed.has(c.id)) out.push(c);
+    }
+    return out;
+  }, [pool, order, removed]);
+
+  // Persist order + removed whenever it changes (after hydration).
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
     try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(channels.map((c) => c.id)),
-      );
+      const payload: StoredState = {
+        order: channels.map((c) => c.id),
+        removed: [...removed],
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
       // ignore quota / private-mode errors
     }
-  }, [channels]);
+  }, [channels, removed, hydrated]);
 
   const [index, setIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(false);
   const [parked, setParked] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<{ src: string; title: string; channelName: string } | null>(null);
 
-  const channel = channels[index % channels.length];
+  const channel = channels.length > 0 ? channels[index % channels.length] : undefined;
   const current: Show | undefined = channel?.schedule[0];
 
   const flip = useCallback(
@@ -129,23 +176,32 @@ export function SurfTV(_props: Props = {} as Props) {
   const handlePark = () => {
     if (!channel) return;
     setParked((p) => ({ ...p, [channel.id]: Math.floor(Math.random() * 60 * 40) }));
-    setToast(`Parked ${channel.schedule[0].title}`);
+    setToast(`Parked ${current?.title ?? channel.name}`);
   };
 
   const handleRemove = () => {
+    if (!channel) return;
     if (channels.length <= 1) {
       setToast("Can't remove your last channel");
       return;
     }
     const removed = channel;
-    setChannels((cs) => cs.filter((c) => c.id !== removed.id));
+    setRemoved((r) => {
+      const n = new Set(r);
+      n.add(removed.id);
+      return n;
+    });
     setIndex((i) => i % (channels.length - 1));
     setToast(`Removed ${removed.name}`);
   };
 
   const handleWatch = () => {
-    if (!channel) return;
-    setToast(`Now watching ${channel.schedule[0].title}`);
+    if (!channel || !current) return;
+    if (channel.streamUrl) {
+      setPlaying({ src: channel.streamUrl, title: current.title, channelName: channel.name });
+    } else {
+      setToast(`Now watching ${current.title}`);
+    }
   };
 
   if (!channel) return null;
@@ -200,9 +256,17 @@ export function SurfTV(_props: Props = {} as Props) {
                 {current.title}
               </h1>
               <div className="mt-3 flex items-center gap-3 text-sm text-white/75">
-                <span>{current.year}</span>
-                <span className="h-1 w-1 rounded-full bg-white/40" />
-                <span>{current.genre}</span>
+                {current.year && <span>{current.year}</span>}
+                {current.year && current.genre && <span className="h-1 w-1 rounded-full bg-white/40" />}
+                {current.genre && <span>{current.genre}</span>}
+                {current.startTime && (
+                  <>
+                    <span className="h-1 w-1 rounded-full bg-white/40" />
+                    <span className="uppercase tracking-[0.2em] text-white/55 text-xs">
+                      Since {formatStart(current.startTime)}
+                    </span>
+                  </>
+                )}
                 {parked[channel.id] !== undefined && (
                   <>
                     <span className="h-1 w-1 rounded-full bg-white/40" />
@@ -275,6 +339,7 @@ export function SurfTV(_props: Props = {} as Props) {
       {showGuide && (
         <FullGuide
           channels={channels}
+          pool={pool}
           activeId={channel.id}
           onPick={(channelId, slotIdx) => {
             const newIdx = channels.findIndex((c) => c.id === channelId);
@@ -285,17 +350,23 @@ export function SurfTV(_props: Props = {} as Props) {
           }}
           onClose={() => setShowGuide(false)}
           onRestore={(channelId) => {
-            setChannels((cs) => {
-              if (cs.some((c) => c.id === channelId)) return cs;
-              // Re-insert preserving the original CHANNELS order
-              const next = CHANNELS.filter(
-                (c) => c.id === channelId || cs.some((x) => x.id === c.id),
-              );
-              return next;
+            setRemoved((r) => {
+              const n = new Set(r);
+              n.delete(channelId);
+              return n;
             });
-            const restored = CHANNELS.find((c) => c.id === channelId);
+            const restored = pool.find((c) => c.id === channelId);
             if (restored) setToast(`Restored ${restored.name}`);
           }}
+        />
+      )}
+
+      {playing && (
+        <VideoPlayer
+          src={playing.src}
+          title={playing.title}
+          channelName={playing.channelName}
+          onClose={() => setPlaying(null)}
         />
       )}
     </div>
@@ -328,18 +399,20 @@ function FlipButton({ dir, onClick }: { dir: "up" | "down"; onClick: () => void 
 
 function FullGuide({
   channels,
+  pool,
   activeId,
   onPick,
   onClose,
   onRestore,
 }: {
   channels: Channel[];
+  pool: Channel[];
   activeId: string;
   onPick: (channelId: string, slotIdx: number) => void;
   onClose: () => void;
   onRestore: (channelId: string) => void;
 }) {
-  const removed = CHANNELS.filter((c) => !channels.some((x) => x.id === c.id));
+  const removed = pool.filter((c) => !channels.some((x) => x.id === c.id));
   const slotOffsetsMin = [0, 30, 60, 90];
   const slotTimes = slotOffsetsMin.map((mins) => {
     const d = new Date(Date.now() + mins * 60 * 1000);
@@ -406,30 +479,47 @@ function FullGuide({
                       />
                     </div>
                   </div>
-                  {c.schedule.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onPick(c.id, i)}
-                      className="group flex flex-col items-start rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3 text-left transition hover:border-white/40 hover:bg-white/10"
-                    >
-                      <div className="line-clamp-1 text-sm font-medium text-white group-hover:text-white">
-                        {s.title}
-                      </div>
-                      <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
-                        {s.year} · {s.genre}
-                      </div>
-                      {i === 0 ? (
-                        <div className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: ACCENT }}>
-                          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ACCENT }} />
-                          Live
+                  {Array.from({ length: 4 }).map((_, i) => {
+                    const s = c.schedule[i];
+                    if (!s) {
+                      return (
+                        <div
+                          key={i}
+                          className="rounded-sm border border-white/5 bg-white/[0.02] px-3 py-3 text-[11px] uppercase tracking-[0.2em] text-white/30"
+                        >
+                          —
                         </div>
-                      ) : (
-                        <div className="mt-2 text-[10px] uppercase tracking-[0.25em] text-white/50">
-                          Starts {slotTimes[i]}
+                      );
+                    }
+                    const meta = [s.year, s.genre].filter(Boolean).join(" · ");
+                    const startLabel = formatStart(s.startTime) ?? slotTimes[i];
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => onPick(c.id, i)}
+                        className="group flex flex-col items-start rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3 text-left transition hover:border-white/40 hover:bg-white/10"
+                      >
+                        <div className="line-clamp-1 text-sm font-medium text-white group-hover:text-white">
+                          {s.title}
                         </div>
-                      )}
-                    </button>
-                  ))}
+                        {meta && (
+                          <div className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
+                            {meta}
+                          </div>
+                        )}
+                        {i === 0 ? (
+                          <div className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]" style={{ color: ACCENT }}>
+                            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ACCENT }} />
+                            Live{s.startTime ? ` · since ${startLabel}` : ""}
+                          </div>
+                        ) : (
+                          <div className="mt-2 text-[10px] uppercase tracking-[0.25em] text-white/50">
+                            Starts {startLabel}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -453,7 +543,7 @@ function FullGuide({
             </p>
 
             <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {CHANNELS.map((c) => {
+              {pool.map((c) => {
                 const isActive = channels.some((x) => x.id === c.id);
                 return (
                   <div
