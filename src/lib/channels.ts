@@ -1,7 +1,8 @@
 export type Show = {
   title: string;
-  year: number;
-  genre: string;
+  year?: number;
+  genre?: string;
+  startTime?: string; // ISO
 };
 
 export type Channel = {
@@ -9,7 +10,8 @@ export type Channel = {
   name: string;
   emoji: string;
   color: string; // hex
-  schedule: [Show, Show, Show, Show]; // Now, +30, +1h, +1.5h
+  schedule: Show[]; // up to 4: Now, +30, +1h, +1.5h
+  streamUrl?: string; // HLS .m3u8 when channel has a real stream
 };
 
 export const CHANNELS: Channel[] = [
