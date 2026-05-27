@@ -344,6 +344,12 @@ function FullGuide({
   onRestore: (channelId: string) => void;
 }) {
   const removed = CHANNELS.filter((c) => !channels.some((x) => x.id === c.id));
+  const slotOffsetsMin = [0, 30, 60, 90];
+  const slotTimes = slotOffsetsMin.map((mins) => {
+    const d = new Date(Date.now() + mins * 60 * 1000);
+    d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  });
   return (
     <div className="fixed inset-0 z-50 bg-[#08080a]/97 backdrop-blur-md">
       <div className="flex h-full flex-col">
