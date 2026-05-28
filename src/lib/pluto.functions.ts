@@ -3,24 +3,30 @@ import type { Channel, Show } from "./channels";
 
 // Three Pluto channels we surface in Surf TV.
 // Mapping: exact Pluto channel name -> Surf TV presentation.
-const TARGETS: Record<string, { id: string; emoji: string; color: string; displayName: string }> = {
+const TARGETS: Record<
+  string,
+  { id: string; emoji: string; color: string; displayName: string; genres: string[] }
+> = {
   "NonStop Kung Fu": {
     id: "pluto-kung-fu",
     emoji: "🥋",
     color: "#dc2626",
     displayName: "Pluto · Kung Fu",
+    genres: ["Kung Fu"],
   },
   "Happy Days": {
     id: "pluto-classic-tv",
     emoji: "📻",
     color: "#0d9488",
     displayName: "Pluto · Classic TV",
+    genres: ["Classic TV"],
   },
   "CBS News 24/7": {
     id: "pluto-news",
     emoji: "📰",
     color: "#2563eb",
     displayName: "Pluto · News 24/7",
+    genres: ["News"],
   },
 };
 
@@ -88,6 +94,8 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
           color: meta.color,
           schedule: timelines.map(toShow),
           streamUrl: hls.url,
+          source: "Pluto TV",
+          genres: meta.genres,
         });
       }
       // Preserve the TARGETS ordering for a stable dial
