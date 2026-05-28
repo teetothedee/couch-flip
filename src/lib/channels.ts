@@ -12,7 +12,28 @@ export type Channel = {
   color: string; // hex
   schedule: Show[]; // up to 4: Now, +30, +1h, +1.5h
   streamUrl?: string; // HLS .m3u8 when channel has a real stream
+  source: string; // e.g. "Pluto TV", "Tubi", "Hi-YAH!", "Internet Archive", "YouTube"
+  genres: string[];
 };
+
+export const ALL_GENRES = [
+  "Kung Fu",
+  "Horror",
+  "Documentary",
+  "Classic TV",
+  "Animation",
+  "News",
+  "Nature",
+  "World Cinema",
+] as const;
+
+export const ALL_SOURCES = [
+  "Pluto TV",
+  "Tubi",
+  "Hi-YAH!",
+  "Internet Archive",
+  "YouTube",
+] as const;
 
 export const CHANNELS: Channel[] = [
   {
@@ -20,6 +41,8 @@ export const CHANNELS: Channel[] = [
     name: "Kung Fu Theater",
     emoji: "🐉",
     color: "#b91c1c",
+    source: "Hi-YAH!",
+    genres: ["Kung Fu"],
     schedule: [
       { title: "Drunken Master", year: 1978, genre: "Martial Arts" },
       { title: "Five Deadly Venoms", year: 1978, genre: "Martial Arts" },
@@ -32,6 +55,8 @@ export const CHANNELS: Channel[] = [
     name: "Saturday Morning",
     emoji: "🥣",
     color: "#f59e0b",
+    source: "Pluto TV",
+    genres: ["Animation"],
     schedule: [
       { title: "Looney Tunes Hour", year: 1989, genre: "Animation" },
       { title: "Teenage Mutant Ninja Turtles", year: 1987, genre: "Animation" },
@@ -44,6 +69,8 @@ export const CHANNELS: Channel[] = [
     name: "Sci-Fi Sleepover",
     emoji: "👽",
     color: "#7c3aed",
+    source: "Tubi",
+    genres: ["Horror", "World Cinema"],
     schedule: [
       { title: "The Thing", year: 1982, genre: "Sci-Fi Horror" },
       { title: "Blade Runner", year: 1982, genre: "Sci-Fi" },
@@ -56,6 +83,8 @@ export const CHANNELS: Channel[] = [
     name: "New Drop Cinema",
     emoji: "🎬",
     color: "#0ea5e9",
+    source: "Tubi",
+    genres: ["World Cinema"],
     schedule: [
       { title: "Anatomy of a Fall", year: 2023, genre: "Drama" },
       { title: "Past Lives", year: 2023, genre: "Romance" },
@@ -68,6 +97,8 @@ export const CHANNELS: Channel[] = [
     name: "After Dark",
     emoji: "🌙",
     color: "#db2777",
+    source: "Tubi",
+    genres: ["Horror"],
     schedule: [
       { title: "Mulholland Drive", year: 2001, genre: "Mystery" },
       { title: "Lost Highway", year: 1997, genre: "Neo-Noir" },
@@ -80,6 +111,8 @@ export const CHANNELS: Channel[] = [
     name: "Late Night Docs",
     emoji: "📼",
     color: "#16a34a",
+    source: "Internet Archive",
+    genres: ["Documentary"],
     schedule: [
       { title: "Grizzly Man", year: 2005, genre: "Documentary" },
       { title: "The Act of Killing", year: 2012, genre: "Documentary" },
@@ -92,6 +125,8 @@ export const CHANNELS: Channel[] = [
     name: "Retro Pluto",
     emoji: "📺",
     color: "#0891b2",
+    source: "Pluto TV",
+    genres: ["Classic TV"],
     schedule: [
       { title: "The Twilight Zone", year: 1959, genre: "Anthology" },
       { title: "Columbo", year: 1971, genre: "Crime" },
