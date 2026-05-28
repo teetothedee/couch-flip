@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import Hls from "hls.js";
 import {
@@ -687,7 +687,7 @@ function FullGuide({
   );
 }
 
-function ChannelRow({ channel: c, action }: { channel: Channel; action: React.ReactNode }) {
+function ChannelRow({ channel: c, action }: { channel: Channel; action: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3">
       <div className="flex min-w-0 items-center gap-3">
