@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { CHANNELS, TIME_SLOTS, type Channel, type Show } from "../../lib/channels";
+import Hls from "hls.js";
+import {
+  ALL_GENRES,
+  ALL_SOURCES,
+  CHANNELS,
+  TIME_SLOTS,
+  type Channel,
+  type Show,
+} from "../../lib/channels";
 import { fetchPlutoChannels } from "../../lib/pluto.functions";
-import { VideoPlayer } from "./VideoPlayer";
 
 const ACCENT = "#e85d26";
 const STORAGE_KEY = "surf-tv:state:v2";
@@ -72,6 +79,67 @@ function LiveDot() {
   );
 }
 
+function InlineStream({ src, muted }: { src: string; muted: boolean }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let hls: Hls | null = null;
+
+    const tryPlay = () => {
+      const p = video.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    };
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src;
+      tryPlay();
+    } else if (Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (!data.fatal) return;
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hls?.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hls?.recoverMediaError();
+            break;
+          default:
+            hls?.destroy();
+        }
+      });
+    }
+
+    return () => {
+      hls?.destroy();
+      if (video) {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }
+    };
+  }, [src]);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
+
+  return (
+    <video
+      ref={videoRef}
+      className="absolute inset-0 h-full w-full bg-black object-cover"
+      autoPlay
+      muted={muted}
+      playsInline
+    />
+  );
+}
+
 type Props = Record<string, never>;
 
 export function SurfTV(_props: Props = {} as Props) {
@@ -130,15 +198,16 @@ export function SurfTV(_props: Props = {} as Props) {
 
   const [index, setIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(false);
-  const [parked, setParked] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<string | null>(null);
-  const [playing, setPlaying] = useState<{ src: string; title: string; channelName: string } | null>(null);
+  const [muted, setMuted] = useState(true);
+  const [overlayVisible, setOverlayVisible] = useState(true);
 
   const channel = channels.length > 0 ? channels[index % channels.length] : undefined;
   const current: Show | undefined = channel?.schedule[0];
 
   const flip = useCallback(
     (dir: 1 | -1) => {
+      setMuted(false);
       setIndex((i) => {
         const n = channels.length;
         if (n === 0) return 0;
@@ -173,47 +242,80 @@ export function SurfTV(_props: Props = {} as Props) {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const handlePark = () => {
-    if (!channel) return;
-    setParked((p) => ({ ...p, [channel.id]: Math.floor(Math.random() * 60 * 40) }));
-    setToast(`Parked ${current?.title ?? channel.name}`);
-  };
-
-  const handleRemove = () => {
-    if (!channel) return;
-    if (channels.length <= 1) {
-      setToast("Can't remove your last channel");
-      return;
-    }
-    const removed = channel;
+  const removeChannel = (id: string) => {
     setRemoved((r) => {
       const n = new Set(r);
-      n.add(removed.id);
+      n.add(id);
       return n;
     });
-    setIndex((i) => i % (channels.length - 1));
-    setToast(`Removed ${removed.name}`);
+    const removedCh = pool.find((c) => c.id === id);
+    if (removedCh) setToast(`Removed ${removedCh.name}`);
+    setIndex((i) => {
+      const remaining = Math.max(1, channels.length - 1);
+      return i % remaining;
+    });
   };
 
-  const handleWatch = () => {
-    if (!channel || !current) return;
-    if (channel.streamUrl) {
-      setPlaying({ src: channel.streamUrl, title: current.title, channelName: channel.name });
-    } else {
-      setToast(`Now watching ${current.title}`);
-    }
+  const addChannel = (id: string) => {
+    setRemoved((r) => {
+      const n = new Set(r);
+      n.delete(id);
+      return n;
+    });
+    const added = pool.find((c) => c.id === id);
+    if (added) setToast(`Added ${added.name}`);
   };
+
+  // Overlay auto-hide after 4s of inactivity (only when guide is closed)
+  useEffect(() => {
+    if (showGuide) {
+      setOverlayVisible(true);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reset = () => {
+      setOverlayVisible(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setOverlayVisible(false), 4000);
+    };
+    const events: (keyof WindowEventMap)[] = ["mousemove", "touchstart", "keydown", "click", "wheel"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      if (timer) clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [showGuide]);
 
   if (!channel) return null;
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#08080a] text-white font-sans flex flex-col" style={{ fontFamily: 'var(--font-sans)' }}>
-      {/* Now Playing area */}
-      <div className="relative flex-1 overflow-hidden">
+    <div
+      className="h-screen w-screen overflow-hidden bg-[#08080a] text-white font-sans relative"
+      style={{ fontFamily: 'var(--font-sans)', cursor: overlayVisible ? "default" : "none" }}
+    >
+      {/* Background: live stream if available, else channel art */}
+      {channel.streamUrl ? (
+        <InlineStream key={channel.id} src={channel.streamUrl} muted={muted} />
+      ) : (
         <ChannelBackground channel={channel} />
+      )}
 
+      {/* Subtle vignette for legibility */}
+      <div
+        className={`pointer-events-none absolute inset-0 transition-opacity duration-500 ${overlayVisible ? "opacity-100" : "opacity-0"}`}
+        style={{
+          background:
+            "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7) 100%)",
+        }}
+      />
+
+      {/* Overlay layer */}
+      <div
+        className={`absolute inset-0 transition-opacity duration-500 ${overlayVisible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+      >
         {/* Top-left: channel + live */}
-        <div className="absolute top-6 left-6 md:top-10 md:left-10 z-10 flex items-center gap-3">
+        <div className="absolute top-6 left-6 md:top-10 md:left-10 flex items-center gap-3">
           <div className="text-3xl md:text-4xl">{channel.emoji}</div>
           <div>
             <div
@@ -225,12 +327,18 @@ export function SurfTV(_props: Props = {} as Props) {
             <div className="mt-1.5 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/70">
               <LiveDot />
               <span>Live</span>
+              {muted && channel.streamUrl && (
+                <>
+                  <span className="h-1 w-1 rounded-full bg-white/40" />
+                  <span className="text-white/55">Muted · flip to unmute</span>
+                </>
+              )}
             </div>
           </div>
         </div>
 
         {/* Full guide button top-right */}
-        <div className="absolute top-6 right-6 md:top-10 md:right-10 z-10">
+        <div className="absolute top-6 right-6 md:top-10 md:right-10">
           <button
             onClick={() => setShowGuide(true)}
             className="rounded-sm border border-white/20 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.25em] backdrop-blur transition hover:border-white/50 hover:bg-black/50"
@@ -240,13 +348,13 @@ export function SurfTV(_props: Props = {} as Props) {
         </div>
 
         {/* Right-edge flip buttons */}
-        <div className="absolute right-4 md:right-8 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-3">
+        <div className="absolute right-4 md:right-8 top-1/2 flex -translate-y-1/2 flex-col gap-3">
           <FlipButton dir="up" onClick={() => flip(-1)} />
           <FlipButton dir="down" onClick={() => flip(1)} />
         </div>
 
-        {/* Bottom-left: title meta + buttons */}
-        <div className="absolute bottom-8 left-6 md:bottom-12 md:left-10 z-10 max-w-2xl">
+        {/* Bottom-left: title + metadata only */}
+        <div className="absolute bottom-8 left-6 md:bottom-12 md:left-10 max-w-2xl">
           {current && (
             <>
               <h1
@@ -267,74 +375,17 @@ export function SurfTV(_props: Props = {} as Props) {
                     </span>
                   </>
                 )}
-                {parked[channel.id] !== undefined && (
-                  <>
-                    <span className="h-1 w-1 rounded-full bg-white/40" />
-                    <span style={{ color: ACCENT }}>Parked</span>
-                  </>
-                )}
-              </div>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <button
-                  onClick={handleWatch}
-                  className="rounded-sm px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white transition hover:brightness-110"
-                  style={{ backgroundColor: ACCENT }}
-                >
-                  Watch Now
-                </button>
-                <button
-                  onClick={handlePark}
-                  className="rounded-sm border border-white/25 bg-white/5 px-5 py-3 text-sm font-medium uppercase tracking-[0.2em] text-white transition hover:bg-white/10"
-                >
-                  Park It
-                </button>
-                <button
-                  onClick={handleRemove}
-                  className="rounded-sm border border-white/15 px-5 py-3 text-sm font-medium uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
-                >
-                  Remove This
-                </button>
               </div>
             </>
           )}
         </div>
-
-        {toast && (
-          <div className="pointer-events-none absolute top-24 left-1/2 z-20 -translate-x-1/2 rounded-sm bg-black/70 px-4 py-2 text-xs uppercase tracking-[0.2em] backdrop-blur">
-            {toast}
-          </div>
-        )}
       </div>
 
-      {/* Channel strip */}
-      <div className="relative z-10 border-t border-white/10 bg-black/60 backdrop-blur">
-        <div className="flex items-center gap-2 overflow-x-auto px-4 py-3 md:px-8 md:py-4">
-          {channels.map((c, i) => {
-            const active = i === index;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setIndex(i)}
-                className={`group flex shrink-0 items-center gap-2 rounded-sm border px-3 py-2 transition ${
-                  active
-                    ? "border-white/80 bg-white text-black"
-                    : "border-white/10 bg-white/5 text-white/80 hover:border-white/30 hover:text-white"
-                }`}
-                style={active ? { boxShadow: `0 0 0 2px ${ACCENT}` } : undefined}
-              >
-                <span className="text-base">{c.emoji}</span>
-                <span
-                  className="text-sm uppercase tracking-[0.15em] whitespace-nowrap"
-                  style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.12em' }}
-                >
-                  {c.name}
-                </span>
-              </button>
-            );
-          })}
+      {toast && (
+        <div className="pointer-events-none absolute top-24 left-1/2 z-30 -translate-x-1/2 rounded-sm bg-black/70 px-4 py-2 text-xs uppercase tracking-[0.2em] backdrop-blur">
+          {toast}
         </div>
-      </div>
+      )}
 
       {showGuide && (
         <FullGuide
@@ -343,30 +394,17 @@ export function SurfTV(_props: Props = {} as Props) {
           activeId={channel.id}
           onPick={(channelId, slotIdx) => {
             const newIdx = channels.findIndex((c) => c.id === channelId);
-            if (newIdx >= 0) setIndex(newIdx);
+            if (newIdx >= 0) {
+              setMuted(false);
+              setIndex(newIdx);
+            }
             setShowGuide(false);
             const ch = channels[newIdx];
             setToast(`${ch.name} · ${TIME_SLOTS[slotIdx]}`);
           }}
           onClose={() => setShowGuide(false)}
-          onRestore={(channelId) => {
-            setRemoved((r) => {
-              const n = new Set(r);
-              n.delete(channelId);
-              return n;
-            });
-            const restored = pool.find((c) => c.id === channelId);
-            if (restored) setToast(`Restored ${restored.name}`);
-          }}
-        />
-      )}
-
-      {playing && (
-        <VideoPlayer
-          src={playing.src}
-          title={playing.title}
-          channelName={playing.channelName}
-          onClose={() => setPlaying(null)}
+          onAdd={addChannel}
+          onRemove={removeChannel}
         />
       )}
     </div>
@@ -403,22 +441,40 @@ function FullGuide({
   activeId,
   onPick,
   onClose,
-  onRestore,
+  onAdd,
+  onRemove,
 }: {
   channels: Channel[];
   pool: Channel[];
   activeId: string;
   onPick: (channelId: string, slotIdx: number) => void;
   onClose: () => void;
-  onRestore: (channelId: string) => void;
+  onAdd: (channelId: string) => void;
+  onRemove: (channelId: string) => void;
 }) {
-  const removed = pool.filter((c) => !channels.some((x) => x.id === c.id));
+  const available = pool.filter((c) => !channels.some((x) => x.id === c.id));
   const slotOffsetsMin = [0, 30, 60, 90];
   const slotTimes = slotOffsetsMin.map((mins) => {
     const d = new Date(Date.now() + mins * 60 * 1000);
     d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0);
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   });
+  const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
+  const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
+
+  const toggle = (set: Set<string>, value: string, setter: (s: Set<string>) => void) => {
+    const n = new Set(set);
+    if (n.has(value)) n.delete(value);
+    else n.add(value);
+    setter(n);
+  };
+
+  const filteredAvailable = available.filter((c) => {
+    const genreOk = genreFilters.size === 0 || c.genres.some((g) => genreFilters.has(g));
+    const sourceOk = sourceFilters.size === 0 || sourceFilters.has(c.source);
+    return genreOk && sourceOk;
+  });
+
   return (
     <div className="fixed inset-0 z-50 bg-[#08080a]/97 backdrop-blur-md">
       <div className="flex h-full flex-col">
@@ -535,59 +591,160 @@ function FullGuide({
                 Manage Channels
               </h3>
               <span className="text-xs uppercase tracking-[0.25em] text-white/50">
-                {channels.length} active · {removed.length} removed
+                {channels.length} active · {available.length} available
               </span>
             </div>
-            <p className="mt-1 text-xs uppercase tracking-[0.25em] text-white/40">
-              Bring back anything you've cut from the dial
-            </p>
 
-            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {pool.map((c) => {
-                const isActive = channels.some((x) => x.id === c.id);
-                return (
-                  <div
+            {/* Active Channels */}
+            <div className="mt-6">
+              <div className="text-xs uppercase tracking-[0.3em] text-white/50">
+                Active Channels
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {channels.map((c) => (
+                  <ChannelRow
                     key={c.id}
-                    className="flex items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="inline-block h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: c.color }}
-                      />
-                      <span className="text-xl">{c.emoji}</span>
-                      <div className="min-w-0">
-                        <div
-                          className="truncate text-sm"
-                          style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}
-                        >
-                          {c.name}
-                        </div>
-                        <div className="mt-0.5 text-[10px] uppercase tracking-[0.25em] text-white/40">
-                          {isActive ? 'On the dial' : 'Removed'}
-                        </div>
-                      </div>
-                    </div>
-                    {isActive ? (
-                      <span className="shrink-0 rounded-sm border border-white/15 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-white/50">
-                        Active
-                      </span>
-                    ) : (
+                    channel={c}
+                    action={
                       <button
-                        onClick={() => onRestore(c.id)}
-                        className="shrink-0 rounded-sm px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110"
-                        style={{ backgroundColor: ACCENT }}
+                        onClick={() => onRemove(c.id)}
+                        disabled={channels.length <= 1}
+                        className="shrink-0 rounded-sm border border-white/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/80 transition hover:border-white/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        + Add
+                        Remove
                       </button>
-                    )}
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Available Channels */}
+            <div className="mt-10">
+              <div className="flex items-baseline justify-between">
+                <div className="text-xs uppercase tracking-[0.3em] text-white/50">
+                  Available Channels
+                </div>
+                {(genreFilters.size > 0 || sourceFilters.size > 0) && (
+                  <button
+                    onClick={() => {
+                      setGenreFilters(new Set());
+                      setSourceFilters(new Set());
+                    }}
+                    className="text-[10px] uppercase tracking-[0.25em] text-white/50 transition hover:text-white"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
+              {/* Filters */}
+              <div className="mt-3 space-y-2">
+                <FilterRow
+                  label="Genre"
+                  options={[...ALL_GENRES]}
+                  selected={genreFilters}
+                  onToggle={(v) => toggle(genreFilters, v, setGenreFilters)}
+                />
+                <FilterRow
+                  label="Source"
+                  options={[...ALL_SOURCES]}
+                  selected={sourceFilters}
+                  onToggle={(v) => toggle(sourceFilters, v, setSourceFilters)}
+                />
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {filteredAvailable.length === 0 ? (
+                  <div className="col-span-full rounded-sm border border-white/10 bg-white/[0.02] px-4 py-6 text-center text-xs uppercase tracking-[0.25em] text-white/40">
+                    {available.length === 0
+                      ? "Everything available is already on your dial"
+                      : "No channels match those filters"}
                   </div>
-                );
-              })}
+                ) : (
+                  filteredAvailable.map((c) => (
+                    <ChannelRow
+                      key={c.id}
+                      channel={c}
+                      action={
+                        <button
+                          onClick={() => onAdd(c.id)}
+                          className="shrink-0 rounded-sm px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110"
+                          style={{ backgroundColor: ACCENT }}
+                        >
+                          + Add
+                        </button>
+                      }
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ChannelRow({ channel: c, action }: { channel: Channel; action: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: c.color }}
+        />
+        <span className="text-xl">{c.emoji}</span>
+        <div className="min-w-0">
+          <div
+            className="truncate text-sm"
+            style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.1em' }}
+          >
+            {c.name}
+          </div>
+          <div className="mt-0.5 truncate text-[10px] uppercase tracking-[0.25em] text-white/40">
+            {c.source}
+            {c.genres.length > 0 ? ` · ${c.genres.join(", ")}` : ""}
+          </div>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function FilterRow({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: string[];
+  selected: Set<string>;
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="mr-1 text-[10px] uppercase tracking-[0.3em] text-white/40">{label}</span>
+      {options.map((opt) => {
+        const active = selected.has(opt);
+        return (
+          <button
+            key={opt}
+            onClick={() => onToggle(opt)}
+            className={`rounded-sm border px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] transition ${
+              active
+                ? "border-transparent text-white"
+                : "border-white/15 bg-white/[0.03] text-white/60 hover:border-white/40 hover:text-white"
+            }`}
+            style={active ? { backgroundColor: ACCENT } : undefined}
+          >
+            {opt}
+          </button>
+        );
+      })}
     </div>
   );
 }
