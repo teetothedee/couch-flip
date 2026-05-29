@@ -10,6 +10,7 @@ import {
   type Show,
 } from "../../lib/channels";
 import { fetchPlutoChannels } from "../../lib/pluto.functions";
+import { fetchHiyahChannels } from "../../lib/hiyah.functions";
 
 const ACCENT = "#e85d26";
 const STORAGE_KEY = "surf-tv:state:v2";
@@ -79,7 +80,7 @@ function LiveDot() {
   );
 }
 
-function InlineStream({ src, muted }: { src: string; muted: boolean }) {
+function InlineStream({ src, muted, proxy }: { src: string; muted: boolean; proxy: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -92,18 +93,18 @@ function InlineStream({ src, muted }: { src: string; muted: boolean }) {
       if (p && typeof p.catch === "function") p.catch(() => {});
     };
 
-    const proxied =
-      typeof window !== "undefined"
+    const playUrl =
+      proxy && typeof window !== "undefined"
         ? `${window.location.origin}/api/public/hls?url=${encodeURIComponent(src)}`
         : src;
-    console.log("[SurfTV] InlineStream loading", { original: src, proxied });
+    console.log("[SurfTV] InlineStream loading", { original: src, playUrl, proxy });
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = proxied;
+      video.src = playUrl;
       tryPlay();
     } else if (Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, lowLatencyMode: false });
-      hls.loadSource(proxied);
+      hls.loadSource(playUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -134,7 +135,7 @@ function InlineStream({ src, muted }: { src: string; muted: boolean }) {
         video.load();
       }
     };
-  }, [src]);
+  }, [src, proxy]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
@@ -155,11 +156,13 @@ type Props = Record<string, never>;
 
 export function SurfTV(_props: Props = {} as Props) {
   const [pluto, setPluto] = useState<Channel[]>([]);
+  const [hiyah, setHiyah] = useState<Channel[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
 
   const fetchPlutoFn = useServerFn(fetchPlutoChannels);
+  const fetchHiyahFn = useServerFn(fetchHiyahChannels);
 
   // Hydrate persisted state + fetch real Pluto channels on mount.
   useEffect(() => {
@@ -172,9 +175,14 @@ export function SurfTV(_props: Props = {} as Props) {
       .catch((err) => {
         console.error("Could not load Pluto channels:", err);
       });
-  }, [fetchPlutoFn]);
+    fetchHiyahFn()
+      .then((list) => setHiyah(list))
+      .catch((err) => {
+        console.error("Could not load Hi-YAH! channels:", err);
+      });
+  }, [fetchPlutoFn, fetchHiyahFn]);
 
-  const pool: Channel[] = useMemo(() => [...CHANNELS, ...pluto], [pluto]);
+  const pool: Channel[] = useMemo(() => [...CHANNELS, ...pluto, ...hiyah], [pluto, hiyah]);
 
   const channels: Channel[] = useMemo(() => {
     const byId = new Map(pool.map((c) => [c.id, c]));
@@ -316,7 +324,12 @@ export function SurfTV(_props: Props = {} as Props) {
           allowFullScreen
         />
       ) : channel.streamUrl ? (
-        <InlineStream key={channel.id} src={channel.streamUrl} muted={muted} />
+        <InlineStream
+          key={channel.id}
+          src={channel.streamUrl}
+          muted={muted}
+          proxy={channel.source === "Pluto TV"}
+        />
       ) : (
         <ChannelBackground channel={channel} />
       )}
