@@ -306,7 +306,16 @@ export function SurfTV(_props: Props = {} as Props) {
       style={{ fontFamily: 'var(--font-sans)', cursor: overlayVisible ? "default" : "none" }}
     >
       {/* Background: live stream if available, else channel art */}
-      {channel.streamUrl ? (
+      {channel.embedUrl ? (
+        <iframe
+          key={channel.id}
+          src={channel.embedUrl}
+          title={channel.name}
+          className="absolute inset-0 h-full w-full border-0 bg-black"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+        />
+      ) : channel.streamUrl ? (
         <InlineStream key={channel.id} src={channel.streamUrl} muted={muted} />
       ) : (
         <ChannelBackground channel={channel} />
@@ -338,7 +347,7 @@ export function SurfTV(_props: Props = {} as Props) {
             <div className="mt-1.5 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/70">
               <LiveDot />
               <span>Live</span>
-              {muted && channel.streamUrl && (
+              {muted && channel.streamUrl && !channel.embedUrl && (
                 <>
                   <span className="h-1 w-1 rounded-full bg-white/40" />
                   <span className="text-white/55">Muted · flip to unmute</span>
