@@ -17,19 +17,30 @@ export function VideoPlayer({ src, title, channelName, onClose }: Props) {
     if (!video) return;
     let hls: Hls | null = null;
 
+    const proxied =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/api/public/hls?url=${encodeURIComponent(src)}`
+        : src;
+    console.log("[SurfTV] VideoPlayer loading", { original: src, proxied });
+
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       // Safari / iOS native HLS
-      video.src = src;
+      video.src = proxied;
       video.play().catch(() => {});
     } else if (Hls.isSupported()) {
       hls = new Hls({ enableWorker: true });
-      hls.loadSource(src);
+      hls.loadSource(proxied);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => {});
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (data.fatal) setError(data.details || "Stream error");
+        if (data.fatal) {
+          console.error("[SurfTV] VideoPlayer HLS fatal error", data);
+          setError(data.details || "Stream error");
+        } else {
+          console.warn("[SurfTV] VideoPlayer HLS error", data.type, data.details);
+        }
       });
     } else {
       setError("HLS playback is not supported in this browser.");
