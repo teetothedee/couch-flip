@@ -92,15 +92,26 @@ function InlineStream({ src, muted }: { src: string; muted: boolean }) {
       if (p && typeof p.catch === "function") p.catch(() => {});
     };
 
+    const proxied =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/api/public/hls?url=${encodeURIComponent(src)}`
+        : src;
+    console.log("[SurfTV] InlineStream loading", { original: src, proxied });
+
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = src;
+      video.src = proxied;
       tryPlay();
     } else if (Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, lowLatencyMode: false });
-      hls.loadSource(src);
+      hls.loadSource(proxied);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
       hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) {
+          console.error("[SurfTV] HLS fatal error", data);
+        } else {
+          console.warn("[SurfTV] HLS error", data.type, data.details);
+        }
         if (!data.fatal) return;
         switch (data.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
