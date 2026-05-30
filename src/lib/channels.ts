@@ -12,7 +12,6 @@ export type Channel = {
   color: string; // hex
   schedule: Show[]; // up to 4: Now, +30, +1h, +1.5h
   streamUrl?: string; // HLS .m3u8 when channel has a real stream
-  embedUrl?: string; // iframe embed URL (e.g. Pluto TV live page)
   source: string; // e.g. "Pluto TV", "Tubi", "Hi-YAH!", "Internet Archive", "YouTube"
   genres: string[];
 };
