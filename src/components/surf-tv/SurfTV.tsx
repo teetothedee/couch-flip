@@ -237,6 +237,7 @@ export function SurfTV(_props: Props = {} as Props) {
 
   const [index, setIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
@@ -267,11 +268,15 @@ export function SurfTV(_props: Props = {} as Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (showManage && e.key === "Escape") {
+        setShowManage(false);
+        return;
+      }
       if (showGuide && e.key === "Escape") {
         setShowGuide(false);
         return;
       }
-      if (showGuide) return;
+      if (showGuide || showManage) return;
       if (e.key === "ArrowUp") {
         e.preventDefault();
         flip(-1);
@@ -282,7 +287,7 @@ export function SurfTV(_props: Props = {} as Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flip, showGuide]);
+  }, [flip, showGuide, showManage]);
 
   useEffect(() => {
     if (!toast) return;
@@ -316,7 +321,7 @@ export function SurfTV(_props: Props = {} as Props) {
 
   // Overlay auto-hide after 4s of inactivity (only when guide is closed)
   useEffect(() => {
-    if (showGuide) {
+    if (showGuide || showManage) {
       setOverlayVisible(true);
       return;
     }
@@ -333,7 +338,7 @@ export function SurfTV(_props: Props = {} as Props) {
       if (timer) clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [showGuide]);
+  }, [showGuide, showManage]);
 
   if (!channel) return null;
 
@@ -449,7 +454,6 @@ export function SurfTV(_props: Props = {} as Props) {
       {showGuide && (
         <FullGuide
           channels={channels}
-          pool={pool}
           activeId={channel.id}
           onPick={(channelId, slotIdx) => {
             const newIdx = channels.findIndex((c) => c.id === channelId);
@@ -462,8 +466,17 @@ export function SurfTV(_props: Props = {} as Props) {
             setToast(`${ch.name} · ${TIME_SLOTS[slotIdx]}`);
           }}
           onClose={() => setShowGuide(false)}
+          onOpenManage={() => setShowManage(true)}
+        />
+      )}
+
+      {showManage && (
+        <ManageChannels
+          channels={channels}
+          pool={pool}
           onAdd={addChannel}
           onRemove={removeChannel}
+          onClose={() => setShowManage(false)}
         />
       )}
     </div>
