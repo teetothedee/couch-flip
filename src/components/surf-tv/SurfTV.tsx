@@ -237,6 +237,7 @@ export function SurfTV(_props: Props = {} as Props) {
 
   const [index, setIndex] = useState(0);
   const [showGuide, setShowGuide] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
@@ -267,11 +268,15 @@ export function SurfTV(_props: Props = {} as Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (showManage && e.key === "Escape") {
+        setShowManage(false);
+        return;
+      }
       if (showGuide && e.key === "Escape") {
         setShowGuide(false);
         return;
       }
-      if (showGuide) return;
+      if (showGuide || showManage) return;
       if (e.key === "ArrowUp") {
         e.preventDefault();
         flip(-1);
@@ -282,7 +287,7 @@ export function SurfTV(_props: Props = {} as Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flip, showGuide]);
+  }, [flip, showGuide, showManage]);
 
   useEffect(() => {
     if (!toast) return;
@@ -316,7 +321,7 @@ export function SurfTV(_props: Props = {} as Props) {
 
   // Overlay auto-hide after 4s of inactivity (only when guide is closed)
   useEffect(() => {
-    if (showGuide) {
+    if (showGuide || showManage) {
       setOverlayVisible(true);
       return;
     }
@@ -333,7 +338,7 @@ export function SurfTV(_props: Props = {} as Props) {
       if (timer) clearTimeout(timer);
       events.forEach((e) => window.removeEventListener(e, reset));
     };
-  }, [showGuide]);
+  }, [showGuide, showManage]);
 
   if (!channel) return null;
 
@@ -449,7 +454,6 @@ export function SurfTV(_props: Props = {} as Props) {
       {showGuide && (
         <FullGuide
           channels={channels}
-          pool={pool}
           activeId={channel.id}
           onPick={(channelId, slotIdx) => {
             const newIdx = channels.findIndex((c) => c.id === channelId);
@@ -462,8 +466,17 @@ export function SurfTV(_props: Props = {} as Props) {
             setToast(`${ch.name} · ${TIME_SLOTS[slotIdx]}`);
           }}
           onClose={() => setShowGuide(false)}
+          onOpenManage={() => setShowManage(true)}
+        />
+      )}
+
+      {showManage && (
+        <ManageChannels
+          channels={channels}
+          pool={pool}
           onAdd={addChannel}
           onRemove={removeChannel}
+          onClose={() => setShowManage(false)}
         />
       )}
     </div>
@@ -496,42 +509,22 @@ function FlipButton({ dir, onClick }: { dir: "up" | "down"; onClick: () => void 
 
 function FullGuide({
   channels,
-  pool,
   activeId,
   onPick,
   onClose,
-  onAdd,
-  onRemove,
+  onOpenManage,
 }: {
   channels: Channel[];
-  pool: Channel[];
   activeId: string;
   onPick: (channelId: string, slotIdx: number) => void;
   onClose: () => void;
-  onAdd: (channelId: string) => void;
-  onRemove: (channelId: string) => void;
+  onOpenManage: () => void;
 }) {
-  const available = pool.filter((c) => !channels.some((x) => x.id === c.id));
   const slotOffsetsMin = [0, 30, 60, 90];
   const slotTimes = slotOffsetsMin.map((mins) => {
     const d = new Date(Date.now() + mins * 60 * 1000);
     d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0);
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  });
-  const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
-  const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
-
-  const toggle = (set: Set<string>, value: string, setter: (s: Set<string>) => void) => {
-    const n = new Set(set);
-    if (n.has(value)) n.delete(value);
-    else n.add(value);
-    setter(n);
-  };
-
-  const filteredAvailable = available.filter((c) => {
-    const genreOk = genreFilters.size === 0 || c.genres.some((g) => genreFilters.has(g));
-    const sourceOk = sourceFilters.size === 0 || sourceFilters.has(c.source);
-    return genreOk && sourceOk;
   });
 
   return (
@@ -547,16 +540,24 @@ function FullGuide({
               Full Guide
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close guide"
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 text-white transition hover:border-white/60 hover:bg-white/10"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="18" y1="6" x2="6" y2="18" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onOpenManage}
+              className="rounded-sm border border-white/20 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.25em] backdrop-blur transition hover:border-white/50 hover:bg-black/50"
+            >
+              Manage Channels
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close guide"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 text-white transition hover:border-white/60 hover:bg-white/10"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto px-6 py-6 md:px-10">
@@ -639,105 +640,149 @@ function FullGuide({
               );
             })}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          {/* Manage Channels */}
-          <div className="mt-12 border-t border-white/10 pt-6">
+function ManageChannels({
+  channels,
+  pool,
+  onAdd,
+  onRemove,
+  onClose,
+}: {
+  channels: Channel[];
+  pool: Channel[];
+  onAdd: (channelId: string) => void;
+  onRemove: (channelId: string) => void;
+  onClose: () => void;
+}) {
+  const available = pool.filter((c) => !channels.some((x) => x.id === c.id));
+  const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
+  const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
+
+  const toggle = (set: Set<string>, value: string, setter: (s: Set<string>) => void) => {
+    const n = new Set(set);
+    if (n.has(value)) n.delete(value);
+    else n.add(value);
+    setter(n);
+  };
+
+  const filteredAvailable = available.filter((c) => {
+    const genreOk = genreFilters.size === 0 || c.genres.some((g) => genreFilters.has(g));
+    const sourceOk = sourceFilters.size === 0 || sourceFilters.has(c.source);
+    return genreOk && sourceOk;
+  });
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-[#08080a] backdrop-blur-md">
+      <div className="flex h-full flex-col">
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-5 md:px-10">
+          <div>
+            <div className="text-xs uppercase tracking-[0.3em] text-white/60">Surf TV</div>
+            <h2
+              className="text-3xl md:text-4xl"
+              style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}
+            >
+              Manage Channels
+            </h2>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-xs uppercase tracking-[0.25em] text-white/50 md:inline">
+              {channels.length} active · {available.length} available
+            </span>
+            <button
+              onClick={onClose}
+              aria-label="Close manage channels"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/20 text-white transition hover:border-white/60 hover:bg-white/10"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto px-6 py-6 md:px-10">
+          <div>
+            <div className="text-xs uppercase tracking-[0.3em] text-white/50">Active Channels</div>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {channels.map((c) => (
+                <ChannelRow
+                  key={c.id}
+                  channel={c}
+                  action={
+                    <button
+                      onClick={() => onRemove(c.id)}
+                      disabled={channels.length <= 1}
+                      className="shrink-0 rounded-sm border border-white/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/80 transition hover:border-white/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  }
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-10">
             <div className="flex items-baseline justify-between">
-              <h3
-                className="text-2xl md:text-3xl"
-                style={{ fontFamily: 'var(--font-display)', letterSpacing: '0.04em' }}
-              >
-                Manage Channels
-              </h3>
-              <span className="text-xs uppercase tracking-[0.25em] text-white/50">
-                {channels.length} active · {available.length} available
-              </span>
+              <div className="text-xs uppercase tracking-[0.3em] text-white/50">Available Channels</div>
+              {(genreFilters.size > 0 || sourceFilters.size > 0) && (
+                <button
+                  onClick={() => {
+                    setGenreFilters(new Set());
+                    setSourceFilters(new Set());
+                  }}
+                  className="text-[10px] uppercase tracking-[0.25em] text-white/50 transition hover:text-white"
+                >
+                  Clear filters
+                </button>
+              )}
             </div>
 
-            {/* Active Channels */}
-            <div className="mt-6">
-              <div className="text-xs uppercase tracking-[0.3em] text-white/50">
-                Active Channels
-              </div>
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {channels.map((c) => (
+            <div className="mt-3 space-y-2">
+              <FilterRow
+                label="Genre"
+                options={[...ALL_GENRES]}
+                selected={genreFilters}
+                onToggle={(v) => toggle(genreFilters, v, setGenreFilters)}
+              />
+              <FilterRow
+                label="Source"
+                options={[...ALL_SOURCES]}
+                selected={sourceFilters}
+                onToggle={(v) => toggle(sourceFilters, v, setSourceFilters)}
+              />
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredAvailable.length === 0 ? (
+                <div className="col-span-full rounded-sm border border-white/10 bg-white/[0.02] px-4 py-6 text-center text-xs uppercase tracking-[0.25em] text-white/40">
+                  {available.length === 0
+                    ? "Everything available is already on your dial"
+                    : "No channels match those filters"}
+                </div>
+              ) : (
+                filteredAvailable.map((c) => (
                   <ChannelRow
                     key={c.id}
                     channel={c}
                     action={
                       <button
-                        onClick={() => onRemove(c.id)}
-                        disabled={channels.length <= 1}
-                        className="shrink-0 rounded-sm border border-white/20 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white/80 transition hover:border-white/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => onAdd(c.id)}
+                        className="shrink-0 rounded-sm px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110"
+                        style={{ backgroundColor: ACCENT }}
                       >
-                        Remove
+                        + Add
                       </button>
                     }
                   />
-                ))}
-              </div>
-            </div>
-
-            {/* Available Channels */}
-            <div className="mt-10">
-              <div className="flex items-baseline justify-between">
-                <div className="text-xs uppercase tracking-[0.3em] text-white/50">
-                  Available Channels
-                </div>
-                {(genreFilters.size > 0 || sourceFilters.size > 0) && (
-                  <button
-                    onClick={() => {
-                      setGenreFilters(new Set());
-                      setSourceFilters(new Set());
-                    }}
-                    className="text-[10px] uppercase tracking-[0.25em] text-white/50 transition hover:text-white"
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
-
-              {/* Filters */}
-              <div className="mt-3 space-y-2">
-                <FilterRow
-                  label="Genre"
-                  options={[...ALL_GENRES]}
-                  selected={genreFilters}
-                  onToggle={(v) => toggle(genreFilters, v, setGenreFilters)}
-                />
-                <FilterRow
-                  label="Source"
-                  options={[...ALL_SOURCES]}
-                  selected={sourceFilters}
-                  onToggle={(v) => toggle(sourceFilters, v, setSourceFilters)}
-                />
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredAvailable.length === 0 ? (
-                  <div className="col-span-full rounded-sm border border-white/10 bg-white/[0.02] px-4 py-6 text-center text-xs uppercase tracking-[0.25em] text-white/40">
-                    {available.length === 0
-                      ? "Everything available is already on your dial"
-                      : "No channels match those filters"}
-                  </div>
-                ) : (
-                  filteredAvailable.map((c) => (
-                    <ChannelRow
-                      key={c.id}
-                      channel={c}
-                      action={
-                        <button
-                          onClick={() => onAdd(c.id)}
-                          className="shrink-0 rounded-sm px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110"
-                          style={{ backgroundColor: ACCENT }}
-                        >
-                          + Add
-                        </button>
-                      }
-                    />
-                  ))
-                )}
-              </div>
+                ))
+              )}
             </div>
           </div>
         </div>
