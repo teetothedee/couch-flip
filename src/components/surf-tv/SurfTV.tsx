@@ -80,7 +80,19 @@ function LiveDot() {
   );
 }
 
-function InlineStream({ src, muted, proxy }: { src: string; muted: boolean; proxy: boolean }) {
+function InlineStream({
+  src,
+  muted,
+  proxy,
+  onError,
+  onReady,
+}: {
+  src: string;
+  muted: boolean;
+  proxy: boolean;
+  onError: () => void;
+  onReady: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -101,12 +113,17 @@ function InlineStream({ src, muted, proxy }: { src: string; muted: boolean; prox
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = playUrl;
+      video.addEventListener("loadeddata", onReady, { once: true });
+      video.addEventListener("error", onError, { once: true });
       tryPlay();
     } else if (Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, lowLatencyMode: false });
       hls.loadSource(playUrl);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        onReady();
+        tryPlay();
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           console.error("[SurfTV] HLS fatal error", data);
@@ -123,8 +140,11 @@ function InlineStream({ src, muted, proxy }: { src: string; muted: boolean; prox
             break;
           default:
             hls?.destroy();
+            onError();
         }
       });
+    } else {
+      onError();
     }
 
     return () => {
@@ -135,7 +155,7 @@ function InlineStream({ src, muted, proxy }: { src: string; muted: boolean; prox
         video.load();
       }
     };
-  }, [src, proxy]);
+  }, [src, proxy, onError, onReady]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.muted = muted;
@@ -313,25 +333,22 @@ export function SurfTV(_props: Props = {} as Props) {
       className="h-screen w-screen overflow-hidden bg-[#08080a] text-white font-sans relative"
       style={{ fontFamily: 'var(--font-sans)', cursor: overlayVisible ? "default" : "none" }}
     >
-      {/* Background: live stream if available, else channel art */}
-      {channel.embedUrl ? (
-        <iframe
-          key={channel.id}
-          src={channel.embedUrl}
-          title={channel.name}
-          className="absolute inset-0 h-full w-full border-0 bg-black"
-          allow="autoplay; encrypted-media; picture-in-picture"
-          allowFullScreen
-        />
-      ) : channel.streamUrl ? (
+      {/* Background: channel art always; live stream overlays when available */}
+      <ChannelBackground channel={channel} />
+      {channel.streamUrl && !streamFailed && (
         <InlineStream
           key={channel.id}
           src={channel.streamUrl}
           muted={muted}
           proxy={channel.source === "Pluto TV"}
+          onError={handleStreamError}
+          onReady={handleStreamReady}
         />
-      ) : (
-        <ChannelBackground channel={channel} />
+      )}
+      {channel.streamUrl && streamFailed && (
+        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 text-xs uppercase tracking-[0.3em] text-white/45">
+          Stream unavailable
+        </div>
       )}
 
       {/* Subtle vignette for legibility */}
