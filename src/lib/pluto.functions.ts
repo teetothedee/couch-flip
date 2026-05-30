@@ -88,7 +88,6 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
         if (!hls) continue;
         const timelines = (c.timelines ?? []).slice(0, 4);
         if (timelines.length === 0) continue;
-        const slug = c.slug || c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
         out.push({
           id: meta.id,
           name: meta.displayName,
@@ -96,7 +95,6 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
           color: meta.color,
           schedule: timelines.map(toShow),
           streamUrl: hls.url,
-          embedUrl: `https://pluto.tv/en/live-tv/${slug}`,
           source: "Pluto TV",
           genres: meta.genres,
         });
