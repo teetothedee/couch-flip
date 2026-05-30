@@ -386,7 +386,7 @@ export function SurfTV(_props: Props = {} as Props) {
             <div className="mt-1.5 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/70">
               <LiveDot />
               <span>Live</span>
-              {muted && channel.streamUrl && !channel.embedUrl && (
+              {muted && channel.streamUrl && (
                 <>
                   <span className="h-1 w-1 rounded-full bg-white/40" />
                   <span className="text-white/55">Muted · flip to unmute</span>
