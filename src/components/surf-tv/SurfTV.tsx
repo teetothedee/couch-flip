@@ -240,9 +240,18 @@ export function SurfTV(_props: Props = {} as Props) {
   const [toast, setToast] = useState<string | null>(null);
   const [muted, setMuted] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
+  const [streamFailed, setStreamFailed] = useState(false);
 
   const channel = channels.length > 0 ? channels[index % channels.length] : undefined;
   const current: Show | undefined = channel?.schedule[0];
+
+  // Reset failure state whenever the active channel/stream changes
+  useEffect(() => {
+    setStreamFailed(false);
+  }, [channel?.id]);
+
+  const handleStreamError = useCallback(() => setStreamFailed(true), []);
+  const handleStreamReady = useCallback(() => setStreamFailed(false), []);
 
   const flip = useCallback(
     (dir: 1 | -1) => {
