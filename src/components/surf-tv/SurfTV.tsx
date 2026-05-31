@@ -9,6 +9,7 @@ import {
 } from "../../lib/channels";
 import { fetchPlutoChannels } from "../../lib/pluto.functions";
 import { fetchHiyahChannels } from "../../lib/hiyah.functions";
+import { fetchArchiveChannels } from "../../lib/archive.functions";
 
 const ACCENT = "#e85d26";
 const STORAGE_KEY = "surf-tv:state:v2";
@@ -109,7 +110,15 @@ function InlineStream({
         : src;
     console.log("[SurfTV] InlineStream loading", { original: src, playUrl, proxy });
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    const isHls = /\.m3u8(\?|$)/i.test(src);
+
+    if (!isHls) {
+      // Plain progressive video (e.g. Internet Archive MP4) — no HLS.js needed.
+      video.src = playUrl;
+      video.addEventListener("loadeddata", onReady, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      tryPlay();
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = playUrl;
       video.addEventListener("loadeddata", onReady, { once: true });
       video.addEventListener("error", onError, { once: true });
@@ -175,12 +184,14 @@ type Props = Record<string, never>;
 export function SurfTV(_props: Props = {} as Props) {
   const [pluto, setPluto] = useState<Channel[]>([]);
   const [hiyah, setHiyah] = useState<Channel[]>([]);
+  const [archive, setArchive] = useState<Channel[]>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
 
   const fetchPlutoFn = useServerFn(fetchPlutoChannels);
   const fetchHiyahFn = useServerFn(fetchHiyahChannels);
+  const fetchArchiveFn = useServerFn(fetchArchiveChannels);
 
   // Hydrate persisted state + fetch real Pluto channels on mount.
   useEffect(() => {
@@ -198,9 +209,17 @@ export function SurfTV(_props: Props = {} as Props) {
       .catch((err) => {
         console.error("Could not load Hi-YAH! channels:", err);
       });
-  }, [fetchPlutoFn, fetchHiyahFn]);
+    fetchArchiveFn()
+      .then((list) => setArchive(list))
+      .catch((err) => {
+        console.error("Could not load Internet Archive channels:", err);
+      });
+  }, [fetchPlutoFn, fetchHiyahFn, fetchArchiveFn]);
 
-  const pool: Channel[] = useMemo(() => [...CHANNELS, ...pluto, ...hiyah], [pluto, hiyah]);
+  const pool: Channel[] = useMemo(
+    () => [...CHANNELS, ...pluto, ...hiyah, ...archive],
+    [pluto, hiyah, archive],
+  );
 
   const channels: Channel[] = useMemo(() => {
     const byId = new Map(pool.map((c) => [c.id, c]));
