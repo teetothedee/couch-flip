@@ -666,6 +666,17 @@ function ManageChannels({
   const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
   const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
 
+  const genreOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of pool) for (const g of c.genres) s.add(g);
+    return [...s].sort();
+  }, [pool]);
+  const sourceOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of pool) s.add(c.source);
+    return [...s].sort();
+  }, [pool]);
+
   const toggle = (set: Set<string>, value: string, setter: (s: Set<string>) => void) => {
     const n = new Set(set);
     if (n.has(value)) n.delete(value);
@@ -750,13 +761,13 @@ function ManageChannels({
             <div className="mt-3 space-y-2">
               <FilterRow
                 label="Genre"
-                options={[...ALL_GENRES]}
+                options={genreOptions}
                 selected={genreFilters}
                 onToggle={(v) => toggle(genreFilters, v, setGenreFilters)}
               />
               <FilterRow
                 label="Source"
-                options={[...ALL_SOURCES]}
+                options={sourceOptions}
                 selected={sourceFilters}
                 onToggle={(v) => toggle(sourceFilters, v, setSourceFilters)}
               />
