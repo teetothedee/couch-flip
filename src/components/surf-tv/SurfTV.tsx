@@ -244,9 +244,16 @@ export function SurfTV(_props: Props = {} as Props) {
   const [muted, setMuted] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [streamFailed, setStreamFailed] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
+  const stripRef = useRef<HTMLDivElement>(null);
 
   const channel = channels.length > 0 ? channels[index % channels.length] : undefined;
   const current: Show | undefined = channel?.schedule[0];
+
+  // Keep highlight in sync with active channel when it changes externally.
+  useEffect(() => {
+    setHighlightIndex(index % Math.max(1, channels.length));
+  }, [index, channels.length]);
 
   // Reset failure state whenever the active channel/stream changes
   useEffect(() => {
@@ -285,11 +292,40 @@ export function SurfTV(_props: Props = {} as Props) {
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         flip(1);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setOverlayVisible(true);
+        setHighlightIndex((h) => {
+          const n = channels.length;
+          if (n === 0) return 0;
+          return (h - 1 + n) % n;
+        });
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setOverlayVisible(true);
+        setHighlightIndex((h) => {
+          const n = channels.length;
+          if (n === 0) return 0;
+          return (h + 1) % n;
+        });
+      } else if (e.key === "Enter") {
+        if (channels.length === 0) return;
+        e.preventDefault();
+        setMuted(false);
+        setIndex(highlightIndex);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [flip, showGuide, showManage]);
+  }, [flip, showGuide, showManage, channels.length, highlightIndex]);
+
+  // Scroll highlighted chip into view in the channel strip.
+  useEffect(() => {
+    const el = stripRef.current?.querySelector<HTMLElement>(
+      `[data-strip-index="${highlightIndex}"]`,
+    );
+    if (el) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [highlightIndex, overlayVisible]);
 
   useEffect(() => {
     if (!toast) return;
@@ -421,7 +457,7 @@ export function SurfTV(_props: Props = {} as Props) {
         </div>
 
         {/* Bottom-left: title + metadata only */}
-        <div className="absolute bottom-8 left-6 md:bottom-12 md:left-10 max-w-2xl">
+        <div className="absolute bottom-28 left-6 md:bottom-32 md:left-10 max-w-2xl">
           {current && (
             <>
               <h1
@@ -445,6 +481,48 @@ export function SurfTV(_props: Props = {} as Props) {
               </div>
             </>
           )}
+        </div>
+
+        {/* Bottom: channel strip */}
+        <div
+          ref={stripRef}
+          className="absolute bottom-0 left-0 right-0 flex gap-2 overflow-x-auto px-6 pb-4 pt-3 md:px-10 md:pb-6"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {channels.map((c, i) => {
+            const isActive = i === index;
+            const isHighlight = i === highlightIndex;
+            const { r, g, b } = hexToRgb(c.color);
+            return (
+              <button
+                key={c.id}
+                data-strip-index={i}
+                onMouseEnter={() => setHighlightIndex(i)}
+                onClick={() => {
+                  setMuted(false);
+                  setIndex(i);
+                }}
+                className="group flex shrink-0 items-center gap-2 rounded-sm border px-3 py-2 text-xs uppercase tracking-[0.2em] backdrop-blur transition"
+                style={{
+                  borderColor: isHighlight
+                    ? "rgba(255,255,255,0.85)"
+                    : isActive
+                      ? `rgba(${r},${g},${b},0.9)`
+                      : "rgba(255,255,255,0.18)",
+                  background: isHighlight
+                    ? "rgba(0,0,0,0.7)"
+                    : isActive
+                      ? `rgba(${r},${g},${b},0.25)`
+                      : "rgba(0,0,0,0.35)",
+                  boxShadow: isHighlight ? "0 0 0 1px rgba(255,255,255,0.4)" : undefined,
+                }}
+              >
+                <span className="text-base leading-none">{c.emoji}</span>
+                <span className="whitespace-nowrap text-white/85">{c.name}</span>
+                {isActive && <LiveDot />}
+              </button>
+            );
+          })}
         </div>
       </div>
 
