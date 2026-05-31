@@ -77,35 +77,72 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
         headers: { Accept: "application/json", "User-Agent": "SurfTV/1.0" },
       });
       if (!res.ok) return [];
-      const data = (await res.json()) as PlutoChannel[];
-      const wanted = new Set(Object.keys(TARGETS));
-      const picked = data.filter((c) => wanted.has(c.name));
+      const data = (await res.json()) as Array<PlutoChannel & { category?: string }>;
 
-      const out: Channel[] = [];
-      for (const c of picked) {
-        const meta = TARGETS[c.name];
+      const featured: Channel[] = [];
+      const catalog: Channel[] = [];
+
+      for (const c of data) {
         const hls = c.stitched?.urls?.find((u) => u.type === "hls" || u.url.endsWith(".m3u8"));
         if (!hls) continue;
         const timelines = (c.timelines ?? []).slice(0, 4);
         if (timelines.length === 0) continue;
-        out.push({
-          id: meta.id,
-          name: meta.displayName,
-          emoji: meta.emoji,
-          color: meta.color,
+
+        const meta = TARGETS[c.name];
+        if (meta) {
+          featured.push({
+            id: meta.id,
+            name: meta.displayName,
+            emoji: meta.emoji,
+            color: meta.color,
+            schedule: timelines.map(toShow),
+            streamUrl: hls.url,
+            source: "Pluto TV",
+            genres: meta.genres,
+          });
+          continue;
+        }
+
+        const category = c.category?.trim() || "General";
+        catalog.push({
+          id: `pluto-${c.slug ?? c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+          name: c.name,
+          emoji: "📺",
+          color: colorFromString(c.name),
           schedule: timelines.map(toShow),
           streamUrl: hls.url,
           source: "Pluto TV",
-          genres: meta.genres,
+          genres: [category],
+          defaultOff: true,
         });
       }
-      // Preserve the TARGETS ordering for a stable dial
+
+      // Featured first (in TARGETS order), then the rest alphabetically.
       const order = Object.values(TARGETS).map((m) => m.id);
-      out.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-      return out;
+      featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      catalog.sort((a, b) => a.name.localeCompare(b.name));
+      return [...featured, ...catalog];
     } catch (err) {
       console.error("Pluto fetch failed:", err);
       return [];
     }
   },
 );
+
+function colorFromString(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  // Deterministic HSL → hex
+  return hslToHex(hue, 55, 42);
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100;
+  l /= 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) =>
+    Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))))).toString(16).padStart(2, "0");
+  return `#${f(0)}${f(8)}${f(4)}`;
+}

@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useServerFn } from "@tanstack/react-start";
 import Hls from "hls.js";
 import {
-  ALL_GENRES,
-  ALL_SOURCES,
   CHANNELS,
   TIME_SLOTS,
   type Channel,
@@ -208,6 +206,7 @@ export function SurfTV(_props: Props = {} as Props) {
     const byId = new Map(pool.map((c) => [c.id, c]));
     const seen = new Set<string>();
     const out: Channel[] = [];
+    const orderSet = new Set(order);
     for (const id of order) {
       const c = byId.get(id);
       if (c && !removed.has(id) && !seen.has(id)) {
@@ -216,7 +215,10 @@ export function SurfTV(_props: Props = {} as Props) {
       }
     }
     for (const c of pool) {
-      if (!seen.has(c.id) && !removed.has(c.id)) out.push(c);
+      if (seen.has(c.id) || removed.has(c.id)) continue;
+      // defaultOff channels stay off the dial until explicitly added (present in order).
+      if (c.defaultOff && !orderSet.has(c.id)) continue;
+      out.push(c);
     }
     return out;
   }, [pool, order, removed]);
@@ -315,6 +317,7 @@ export function SurfTV(_props: Props = {} as Props) {
       n.delete(id);
       return n;
     });
+    setOrder((o) => (o.includes(id) ? o : [...o, id]));
     const added = pool.find((c) => c.id === id);
     if (added) setToast(`Added ${added.name}`);
   };
@@ -663,6 +666,17 @@ function ManageChannels({
   const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
   const [sourceFilters, setSourceFilters] = useState<Set<string>>(new Set());
 
+  const genreOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of pool) for (const g of c.genres) s.add(g);
+    return [...s].sort();
+  }, [pool]);
+  const sourceOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of pool) s.add(c.source);
+    return [...s].sort();
+  }, [pool]);
+
   const toggle = (set: Set<string>, value: string, setter: (s: Set<string>) => void) => {
     const n = new Set(set);
     if (n.has(value)) n.delete(value);
@@ -747,13 +761,13 @@ function ManageChannels({
             <div className="mt-3 space-y-2">
               <FilterRow
                 label="Genre"
-                options={[...ALL_GENRES]}
+                options={genreOptions}
                 selected={genreFilters}
                 onToggle={(v) => toggle(genreFilters, v, setGenreFilters)}
               />
               <FilterRow
                 label="Source"
-                options={[...ALL_SOURCES]}
+                options={sourceOptions}
                 selected={sourceFilters}
                 onToggle={(v) => toggle(sourceFilters, v, setSourceFilters)}
               />

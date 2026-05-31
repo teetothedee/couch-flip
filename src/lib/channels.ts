@@ -14,6 +14,8 @@ export type Channel = {
   streamUrl?: string; // HLS .m3u8 when channel has a real stream
   source: string; // e.g. "Pluto TV", "Tubi", "Hi-YAH!", "Internet Archive", "YouTube"
   genres: string[];
+  /** If true, the channel only appears on the dial when the user explicitly adds it. */
+  defaultOff?: boolean;
 };
 
 export const ALL_GENRES = [
