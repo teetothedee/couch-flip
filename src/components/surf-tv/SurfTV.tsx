@@ -799,12 +799,20 @@ function ManageChannels({
   onAdd,
   onRemove,
   onClose,
+  plexConnected,
+  plexConnecting,
+  onConnectPlex,
+  onDisconnectPlex,
 }: {
   channels: Channel[];
   pool: Channel[];
   onAdd: (channelId: string) => void;
   onRemove: (channelId: string) => void;
   onClose: () => void;
+  plexConnected: boolean;
+  plexConnecting: boolean;
+  onConnectPlex: () => void;
+  onDisconnectPlex: () => void;
 }) {
   const available = pool.filter((c) => !channels.some((x) => x.id === c.id));
   const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
@@ -851,6 +859,23 @@ function ManageChannels({
             <span className="hidden text-xs uppercase tracking-[0.25em] text-white/50 md:inline">
               {channels.length} active · {available.length} available
             </span>
+            {plexConnected ? (
+              <button
+                onClick={onDisconnectPlex}
+                className="rounded-sm border border-white/20 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.25em] backdrop-blur transition hover:border-white/50 hover:bg-black/50"
+              >
+                Disconnect Plex
+              </button>
+            ) : (
+              <button
+                onClick={onConnectPlex}
+                disabled={plexConnecting}
+                className="rounded-sm px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110 disabled:opacity-60"
+                style={{ backgroundColor: "#e5a00d" }}
+              >
+                {plexConnecting ? "Connecting…" : "Connect Plex"}
+              </button>
+            )}
             <button
               onClick={onClose}
               aria-label="Close manage channels"
