@@ -10,6 +10,12 @@ import {
 import { fetchPlutoChannels } from "../../lib/pluto.functions";
 import { fetchHiyahChannels } from "../../lib/hiyah.functions";
 import { fetchArchiveChannels } from "../../lib/archive.functions";
+import {
+  connectPlex,
+  fetchAllPlexChannels,
+  getStoredPlexToken,
+  setStoredPlexToken,
+} from "../../lib/plex";
 
 const ACCENT = "#e85d26";
 const STORAGE_KEY = "surf-tv:state:v2";
@@ -185,6 +191,9 @@ export function SurfTV(_props: Props = {} as Props) {
   const [pluto, setPluto] = useState<Channel[]>([]);
   const [hiyah, setHiyah] = useState<Channel[]>([]);
   const [archive, setArchive] = useState<Channel[]>([]);
+  const [plex, setPlex] = useState<Channel[]>([]);
+  const [plexToken, setPlexToken] = useState<string | null>(null);
+  const [plexConnecting, setPlexConnecting] = useState(false);
   const [order, setOrder] = useState<string[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
@@ -214,11 +223,20 @@ export function SurfTV(_props: Props = {} as Props) {
       .catch((err) => {
         console.error("Could not load Internet Archive channels:", err);
       });
+    const existingToken = getStoredPlexToken();
+    if (existingToken) {
+      setPlexToken(existingToken);
+      fetchAllPlexChannels(existingToken)
+        .then((list) => setPlex(list))
+        .catch((err) => {
+          console.error("Could not load Plex channels:", err);
+        });
+    }
   }, [fetchPlutoFn, fetchHiyahFn, fetchArchiveFn]);
 
   const pool: Channel[] = useMemo(
-    () => [...CHANNELS, ...pluto, ...hiyah, ...archive],
-    [pluto, hiyah, archive],
+    () => [...CHANNELS, ...pluto, ...hiyah, ...archive, ...plex],
+    [pluto, hiyah, archive, plex],
   );
 
   const channels: Channel[] = useMemo(() => {
@@ -376,6 +394,31 @@ export function SurfTV(_props: Props = {} as Props) {
     const added = pool.find((c) => c.id === id);
     if (added) setToast(`Added ${added.name}`);
   };
+
+  const handleConnectPlex = useCallback(async () => {
+    if (plexConnecting) return;
+    setPlexConnecting(true);
+    setToast("Waiting for Plex login…");
+    try {
+      const token = await connectPlex();
+      setPlexToken(token);
+      const list = await fetchAllPlexChannels(token);
+      setPlex(list);
+      setToast(`Connected Plex · ${list.length} channels`);
+    } catch (err) {
+      console.error("[Plex] connect failed", err);
+      setToast(err instanceof Error ? err.message : "Plex connect failed");
+    } finally {
+      setPlexConnecting(false);
+    }
+  }, [plexConnecting]);
+
+  const handleDisconnectPlex = useCallback(() => {
+    setStoredPlexToken(null);
+    setPlexToken(null);
+    setPlex([]);
+    setToast("Disconnected Plex");
+  }, []);
 
   // Overlay auto-hide after 4s of inactivity (only when guide is closed)
   useEffect(() => {
@@ -577,6 +620,10 @@ export function SurfTV(_props: Props = {} as Props) {
           onAdd={addChannel}
           onRemove={removeChannel}
           onClose={() => setShowManage(false)}
+          plexConnected={!!plexToken}
+          plexConnecting={plexConnecting}
+          onConnectPlex={handleConnectPlex}
+          onDisconnectPlex={handleDisconnectPlex}
         />
       )}
     </div>
@@ -752,12 +799,20 @@ function ManageChannels({
   onAdd,
   onRemove,
   onClose,
+  plexConnected,
+  plexConnecting,
+  onConnectPlex,
+  onDisconnectPlex,
 }: {
   channels: Channel[];
   pool: Channel[];
   onAdd: (channelId: string) => void;
   onRemove: (channelId: string) => void;
   onClose: () => void;
+  plexConnected: boolean;
+  plexConnecting: boolean;
+  onConnectPlex: () => void;
+  onDisconnectPlex: () => void;
 }) {
   const available = pool.filter((c) => !channels.some((x) => x.id === c.id));
   const [genreFilters, setGenreFilters] = useState<Set<string>>(new Set());
@@ -804,6 +859,23 @@ function ManageChannels({
             <span className="hidden text-xs uppercase tracking-[0.25em] text-white/50 md:inline">
               {channels.length} active · {available.length} available
             </span>
+            {plexConnected ? (
+              <button
+                onClick={onDisconnectPlex}
+                className="rounded-sm border border-white/20 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.25em] backdrop-blur transition hover:border-white/50 hover:bg-black/50"
+              >
+                Disconnect Plex
+              </button>
+            ) : (
+              <button
+                onClick={onConnectPlex}
+                disabled={plexConnecting}
+                className="rounded-sm px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white transition hover:brightness-110 disabled:opacity-60"
+                style={{ backgroundColor: "#e5a00d" }}
+              >
+                {plexConnecting ? "Connecting…" : "Connect Plex"}
+              </button>
+            )}
             <button
               onClick={onClose}
               aria-label="Close manage channels"
