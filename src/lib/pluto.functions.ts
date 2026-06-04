@@ -71,10 +71,20 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
   async (): Promise<Channel[]> => {
     const now = new Date();
     const stop = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-    const url = `https://api.pluto.tv/v2/channels?start=${now.toISOString()}&stop=${stop.toISOString()}`;
+    // Include deviceLat/deviceLon (NYC) + appName so Pluto returns the US lineup
+    // when called from regions where the default lookup yields zero channels
+    // (e.g. Cloudflare Workers in non-US PoPs).
+    const url =
+      `https://api.pluto.tv/v2/channels?start=${now.toISOString()}&stop=${stop.toISOString()}` +
+      `&deviceLat=40.71&deviceLon=-74.01&appName=web&appVersion=5.0.0&deviceType=web&deviceMake=Chrome&deviceModel=web&deviceVersion=1`;
     try {
       const res = await fetch(url, {
-        headers: { Accept: "application/json", "User-Agent": "SurfTV/1.0" },
+        headers: {
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Referer: "https://pluto.tv/",
+        },
       });
       if (!res.ok) return [];
       const data = (await res.json()) as Array<PlutoChannel & { category?: string }>;
@@ -121,13 +131,84 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
       const order = Object.values(TARGETS).map((m) => m.id);
       featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
       catalog.sort((a, b) => a.name.localeCompare(b.name));
-      return [...featured, ...catalog];
+      const combined = [...featured, ...catalog];
+      if (combined.length > 0) return combined;
+      // API returned no playable channels (geo-restricted from this region);
+      // fall through to the community M3U fallback below.
     } catch (err) {
       console.error("Pluto fetch failed:", err);
-      return [];
     }
+    return await fetchPlutoFromM3U();
   },
 );
+
+async function fetchPlutoFromM3U(): Promise<Channel[]> {
+  const url =
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plutotv_us.m3u";
+  try {
+    const res = await fetch(url, { headers: { Accept: "text/plain" } });
+    if (!res.ok) return [];
+    const text = await res.text();
+    const lines = text.split(/\r?\n/);
+    const featured: Channel[] = [];
+    const catalog: Channel[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.startsWith("#EXTINF")) continue;
+      const commaIdx = line.lastIndexOf(",");
+      if (commaIdx < 0) continue;
+      const name = line.slice(commaIdx + 1).trim();
+      const groupMatch = /group-title="([^"]*)"/.exec(line);
+      const idMatch = /channel-id="([^"]*)"/.exec(line);
+      const category = groupMatch?.[1]?.trim() || "General";
+      const chId = idMatch?.[1] || name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      // Find next non-empty, non-comment line as the stream URL.
+      let streamUrl: string | undefined;
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j].trim();
+        if (!next) continue;
+        if (next.startsWith("#")) continue;
+        streamUrl = next;
+        i = j;
+        break;
+      }
+      if (!streamUrl) continue;
+      const schedule: Show[] = [{ title: name, genre: category }];
+      const meta = TARGETS[name];
+      if (meta) {
+        featured.push({
+          id: meta.id,
+          name: meta.displayName,
+          emoji: meta.emoji,
+          color: meta.color,
+          schedule,
+          streamUrl,
+          source: "Pluto TV",
+          genres: meta.genres,
+        });
+      } else {
+        catalog.push({
+          id: `pluto-${chId}`,
+          name,
+          emoji: "📺",
+          color: colorFromString(name),
+          schedule,
+          streamUrl,
+          source: "Pluto TV",
+          genres: [category],
+          defaultOff: true,
+        });
+      }
+    }
+    const order = Object.values(TARGETS).map((m) => m.id);
+    featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    catalog.sort((a, b) => a.name.localeCompare(b.name));
+    return [...featured, ...catalog];
+  } catch (err) {
+    console.error("[Pluto] M3U fallback failed:", err);
+    return [];
+  }
+}
 
 function colorFromString(s: string): string {
   let h = 0;
