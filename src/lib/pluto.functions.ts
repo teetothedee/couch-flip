@@ -144,13 +144,87 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
       const order = Object.values(TARGETS).map((m) => m.id);
       featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
       catalog.sort((a, b) => a.name.localeCompare(b.name));
-      return [...featured, ...catalog];
+      const combined = [...featured, ...catalog];
+      if (combined.length > 0) return combined;
+      // API returned no playable channels (geo-restricted from this region);
+      // fall through to the community M3U fallback below.
+      console.log("[Pluto] API returned 0 playable channels, falling back to M3U");
     } catch (err) {
       console.error("Pluto fetch failed:", err);
-      return [];
     }
+    return await fetchPlutoFromM3U();
   },
 );
+
+async function fetchPlutoFromM3U(): Promise<Channel[]> {
+  const url =
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plutotv_us.m3u";
+  try {
+    const res = await fetch(url, { headers: { Accept: "text/plain" } });
+    console.log("[Pluto] M3U status:", res.status);
+    if (!res.ok) return [];
+    const text = await res.text();
+    const lines = text.split(/\r?\n/);
+    const featured: Channel[] = [];
+    const catalog: Channel[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.startsWith("#EXTINF")) continue;
+      const commaIdx = line.lastIndexOf(",");
+      if (commaIdx < 0) continue;
+      const name = line.slice(commaIdx + 1).trim();
+      const groupMatch = /group-title="([^"]*)"/.exec(line);
+      const idMatch = /channel-id="([^"]*)"/.exec(line);
+      const category = groupMatch?.[1]?.trim() || "General";
+      const chId = idMatch?.[1] || name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      // Find next non-empty, non-comment line as the stream URL.
+      let streamUrl: string | undefined;
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j].trim();
+        if (!next) continue;
+        if (next.startsWith("#")) continue;
+        streamUrl = next;
+        i = j;
+        break;
+      }
+      if (!streamUrl) continue;
+      const schedule: Show[] = [{ title: name, genre: category }];
+      const meta = TARGETS[name];
+      if (meta) {
+        featured.push({
+          id: meta.id,
+          name: meta.displayName,
+          emoji: meta.emoji,
+          color: meta.color,
+          schedule,
+          streamUrl,
+          source: "Pluto TV",
+          genres: meta.genres,
+        });
+      } else {
+        catalog.push({
+          id: `pluto-${chId}`,
+          name,
+          emoji: "📺",
+          color: colorFromString(name),
+          schedule,
+          streamUrl,
+          source: "Pluto TV",
+          genres: [category],
+          defaultOff: true,
+        });
+      }
+    }
+    const order = Object.values(TARGETS).map((m) => m.id);
+    featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    catalog.sort((a, b) => a.name.localeCompare(b.name));
+    console.log("[Pluto] M3U parsed:", featured.length + catalog.length, "channels");
+    return [...featured, ...catalog];
+  } catch (err) {
+    console.error("[Pluto] M3U fallback failed:", err);
+    return [];
+  }
+}
 
 function colorFromString(s: string): string {
   let h = 0;
