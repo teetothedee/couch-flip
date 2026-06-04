@@ -86,21 +86,8 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
           Referer: "https://pluto.tv/",
         },
       });
-      console.log("[Pluto] upstream status:", res.status);
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.log("[Pluto] upstream body sample:", text.slice(0, 300));
-        return [];
-      }
+      if (!res.ok) return [];
       const data = (await res.json()) as Array<PlutoChannel & { category?: string }>;
-      console.log("[Pluto] channels received:", Array.isArray(data) ? data.length : `not-array(${typeof data})`);
-      let withHls = 0;
-      let withTimelines = 0;
-      for (const c of data) {
-        if (c.stitched?.urls?.length) withHls++;
-        if (c.timelines?.length) withTimelines++;
-      }
-      console.log("[Pluto] withHls:", withHls, "withTimelines:", withTimelines);
 
       const featured: Channel[] = [];
       const catalog: Channel[] = [];
@@ -148,7 +135,6 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
       if (combined.length > 0) return combined;
       // API returned no playable channels (geo-restricted from this region);
       // fall through to the community M3U fallback below.
-      console.log("[Pluto] API returned 0 playable channels, falling back to M3U");
     } catch (err) {
       console.error("Pluto fetch failed:", err);
     }
