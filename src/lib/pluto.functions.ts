@@ -147,7 +147,6 @@ async function fetchPlutoFromM3U(): Promise<Channel[]> {
     "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plutotv_us.m3u";
   try {
     const res = await fetch(url, { headers: { Accept: "text/plain" } });
-    console.log("[Pluto] M3U status:", res.status);
     if (!res.ok) return [];
     const text = await res.text();
     const lines = text.split(/\r?\n/);
@@ -204,7 +203,6 @@ async function fetchPlutoFromM3U(): Promise<Channel[]> {
     const order = Object.values(TARGETS).map((m) => m.id);
     featured.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
     catalog.sort((a, b) => a.name.localeCompare(b.name));
-    console.log("[Pluto] M3U parsed:", featured.length + catalog.length, "channels");
     return [...featured, ...catalog];
   } catch (err) {
     console.error("[Pluto] M3U fallback failed:", err);
