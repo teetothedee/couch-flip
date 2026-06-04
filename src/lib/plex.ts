@@ -11,6 +11,7 @@ const TOKEN_KEY = "surf-tv:plex-token";
 const PLEX_HEADERS = {
   "X-Plex-Client-Identifier": CLIENT_ID,
   "X-Plex-Product": PRODUCT,
+  "X-Plex-Platform": "Web",
   Accept: "application/json",
 };
 
@@ -87,6 +88,7 @@ export async function connectPlex(): Promise<string> {
       if (status.authToken) {
         if (!popup.closed) popup.close();
         setStoredPlexToken(status.authToken);
+        console.log("[Plex] auth token stored:", status.authToken);
         return status.authToken;
       }
     } catch {
@@ -146,12 +148,13 @@ export async function fetchPlexHubChannels(token: string): Promise<Channel[]> {
   });
   if (!res.ok) throw new Error(`Plex hubs failed (${res.status})`);
   const data: PlexHubsResponse = await res.json();
+  console.log("[Plex] /hubs response:", data);
   const hubs = data.MediaContainer?.Hub ?? [];
   return hubs
-    .filter((h) => (h.Metadata?.length ?? 0) > 0)
     .map((h) => {
       const title = h.title || h.hubIdentifier || "Plex Hub";
       const id = `plex:${h.hubIdentifier || title}`;
+      const meta = h.Metadata ?? [];
       return {
         id,
         name: title,
@@ -160,11 +163,14 @@ export async function fetchPlexHubChannels(token: string): Promise<Channel[]> {
         source: "Plex",
         genres: ["Plex"],
         defaultOff: true,
-        schedule: (h.Metadata ?? []).slice(0, 4).map((m) => ({
-          title: m.title ?? "Untitled",
-          year: m.year,
-          genre: m.genre,
-        })),
+        schedule:
+          meta.length > 0
+            ? meta.slice(0, 4).map((m) => ({
+                title: m.title ?? "Untitled",
+                year: m.year,
+                genre: m.genre,
+              }))
+            : [{ title: title, genre: "Plex Hub" }],
       } satisfies Channel;
     });
 }
@@ -177,8 +183,9 @@ export async function fetchPlexServerChannels(token: string): Promise<Channel[]>
   );
   if (!res.ok) throw new Error(`Plex resources failed (${res.status})`);
   const data: PlexResourcesResponse = await res.json();
+  console.log("[Plex] /resources response:", data);
   return data
-    .filter((r) => r.owned && (r.provides || "").includes("server"))
+    .filter((r) => (r.provides || "").includes("server"))
     .map((r) => {
       const id = `plex-server:${r.clientIdentifier || r.name}`;
       const name = r.name || "Plex Server";
