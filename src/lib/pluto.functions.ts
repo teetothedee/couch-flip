@@ -71,10 +71,20 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
   async (): Promise<Channel[]> => {
     const now = new Date();
     const stop = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-    const url = `https://api.pluto.tv/v2/channels?start=${now.toISOString()}&stop=${stop.toISOString()}`;
+    // Include deviceLat/deviceLon (NYC) + appName so Pluto returns the US lineup
+    // when called from regions where the default lookup yields zero channels
+    // (e.g. Cloudflare Workers in non-US PoPs).
+    const url =
+      `https://api.pluto.tv/v2/channels?start=${now.toISOString()}&stop=${stop.toISOString()}` +
+      `&deviceLat=40.71&deviceLon=-74.01&appName=web&appVersion=5.0.0&deviceType=web&deviceMake=Chrome&deviceModel=web&deviceVersion=1`;
     try {
       const res = await fetch(url, {
-        headers: { Accept: "application/json", "User-Agent": "SurfTV/1.0" },
+        headers: {
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Referer: "https://pluto.tv/",
+        },
       });
       console.log("[Pluto] upstream status:", res.status);
       if (!res.ok) {
