@@ -10,6 +10,7 @@ import {
 import { fetchPlutoChannels } from "../../lib/pluto.functions";
 import { fetchHiyahChannels } from "../../lib/hiyah.functions";
 import { fetchArchiveChannels } from "../../lib/archive.functions";
+import { fetchTubiChannels } from "../../lib/tubi.functions";
 import {
   connectPlex,
   fetchAllPlexChannels,
@@ -191,6 +192,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const [pluto, setPluto] = useState<Channel[]>([]);
   const [hiyah, setHiyah] = useState<Channel[]>([]);
   const [archive, setArchive] = useState<Channel[]>([]);
+  const [tubi, setTubi] = useState<Channel[]>([]);
   const [plex, setPlex] = useState<Channel[]>([]);
   const [plexToken, setPlexToken] = useState<string | null>(null);
   const [plexConnecting, setPlexConnecting] = useState(false);
@@ -201,6 +203,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const fetchPlutoFn = useServerFn(fetchPlutoChannels);
   const fetchHiyahFn = useServerFn(fetchHiyahChannels);
   const fetchArchiveFn = useServerFn(fetchArchiveChannels);
+  const fetchTubiFn = useServerFn(fetchTubiChannels);
 
   // Hydrate persisted state + fetch real Pluto channels on mount.
   useEffect(() => {
@@ -223,6 +226,11 @@ export function SurfTV(_props: Props = {} as Props) {
       .catch((err) => {
         console.error("Could not load Internet Archive channels:", err);
       });
+    fetchTubiFn()
+      .then((list) => setTubi(list))
+      .catch((err) => {
+        console.error("Could not load Tubi channels:", err);
+      });
     const existingToken = getStoredPlexToken();
     if (existingToken) {
       setPlexToken(existingToken);
@@ -232,11 +240,11 @@ export function SurfTV(_props: Props = {} as Props) {
           console.error("Could not load Plex channels:", err);
         });
     }
-  }, [fetchPlutoFn, fetchHiyahFn, fetchArchiveFn]);
+  }, [fetchPlutoFn, fetchHiyahFn, fetchArchiveFn, fetchTubiFn]);
 
   const pool: Channel[] = useMemo(
-    () => [...CHANNELS, ...pluto, ...hiyah, ...archive, ...plex],
-    [pluto, hiyah, archive, plex],
+    () => [...CHANNELS, ...pluto, ...hiyah, ...archive, ...tubi, ...plex],
+    [pluto, hiyah, archive, tubi, plex],
   );
 
   const channels: Channel[] = useMemo(() => {
