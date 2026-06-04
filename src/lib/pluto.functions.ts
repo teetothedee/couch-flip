@@ -76,8 +76,21 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
       const res = await fetch(url, {
         headers: { Accept: "application/json", "User-Agent": "SurfTV/1.0" },
       });
-      if (!res.ok) return [];
+      console.log("[Pluto] upstream status:", res.status);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.log("[Pluto] upstream body sample:", text.slice(0, 300));
+        return [];
+      }
       const data = (await res.json()) as Array<PlutoChannel & { category?: string }>;
+      console.log("[Pluto] channels received:", Array.isArray(data) ? data.length : `not-array(${typeof data})`);
+      let withHls = 0;
+      let withTimelines = 0;
+      for (const c of data) {
+        if (c.stitched?.urls?.length) withHls++;
+        if (c.timelines?.length) withTimelines++;
+      }
+      console.log("[Pluto] withHls:", withHls, "withTimelines:", withTimelines);
 
       const featured: Channel[] = [];
       const catalog: Channel[] = [];
