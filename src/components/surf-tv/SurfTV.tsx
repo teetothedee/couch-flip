@@ -7,7 +7,7 @@ import {
   type Channel,
   type Show,
 } from "../../lib/channels";
-import { fetchPlutoChannels } from "../../lib/pluto.functions";
+import { fetchPlutoChannels, resolvePlutoStream } from "../../lib/pluto.functions";
 import { fetchHiyahChannels } from "../../lib/hiyah.functions";
 import { fetchArchiveChannels } from "../../lib/archive.functions";
 import { fetchTubiChannels } from "../../lib/tubi.functions";
@@ -196,6 +196,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const [plex, setPlex] = useState<Channel[]>([]);
   const [plexToken, setPlexToken] = useState<string | null>(null);
   const [plexConnecting, setPlexConnecting] = useState(false);
+  const [plutoResolved, setPlutoResolved] = useState<Record<string, string>>({});
   const [order, setOrder] = useState<string[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
@@ -204,6 +205,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const fetchHiyahFn = useServerFn(fetchHiyahChannels);
   const fetchArchiveFn = useServerFn(fetchArchiveChannels);
   const fetchTubiFn = useServerFn(fetchTubiChannels);
+  const resolvePlutoFn = useServerFn(resolvePlutoStream);
 
   // Hydrate persisted state + fetch real Pluto channels on mount.
   useEffect(() => {
