@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import type { Channel, Show } from "./channels";
 
 // Three Pluto channels we surface in Surf TV.
@@ -227,3 +228,57 @@ function hslToHex(h: number, s: number, l: number): string {
     Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))))).toString(16).padStart(2, "0");
   return `#${f(0)}${f(8)}${f(4)}`;
 }
+
+// Resolve a Pluto stream URL to the final, playable variant URL.
+// - Follows redirects (jmp2.uk → stitcher.pluto.tv → siloh CDN) server-side
+//   with the Origin/Referer headers Pluto's edge requires.
+// - If the response is a master HLS playlist, picks the first variant URL and
+//   returns its absolute CDN URL — bypassing stitcher.pluto.tv entirely so the
+//   browser fetches segments directly from the CDN.
+const PLUTO_FETCH_HEADERS: Record<string, string> = {
+  Accept: "*/*",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  Origin: "https://pluto.tv",
+  Referer: "https://pluto.tv/",
+};
+
+export const resolvePlutoStream = createServerFn({ method: "POST" })
+  .inputValidator(z.object({ url: z.string().url() }))
+  .handler(async ({ data }): Promise<{ url: string }> => {
+    try {
+      const res = await fetch(data.url, {
+        headers: PLUTO_FETCH_HEADERS,
+        redirect: "follow",
+      });
+      if (!res.ok) {
+        console.warn("[Pluto] resolve non-ok", res.status, data.url);
+        return { url: data.url };
+      }
+      const finalUrl = res.url || data.url;
+      const ctype = (res.headers.get("content-type") ?? "").toLowerCase();
+      const looksLikeManifest =
+        ctype.includes("mpegurl") || finalUrl.toLowerCase().includes(".m3u8");
+      if (!looksLikeManifest) return { url: finalUrl };
+      const text = await res.text();
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue;
+        for (let j = i + 1; j < lines.length; j++) {
+          const next = lines[j].trim();
+          if (!next || next.startsWith("#")) continue;
+          try {
+            const abs = new URL(next, finalUrl).toString();
+            console.log("[Pluto] resolved variant", { input: data.url, resolved: abs });
+            return { url: abs };
+          } catch {
+            return { url: finalUrl };
+          }
+        }
+      }
+      return { url: finalUrl };
+    } catch (err) {
+      console.error("[Pluto] resolve failed", err);
+      return { url: data.url };
+    }
+  });

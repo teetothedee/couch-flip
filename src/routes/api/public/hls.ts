@@ -15,6 +15,7 @@ const ALLOWED_HOST_SUFFIXES = [
   "akamaized.net",
   "akamaihd.net",
   "fastly.net",
+  "jmp2.uk",
 ];
 
 function hostAllowed(u: URL): boolean {
