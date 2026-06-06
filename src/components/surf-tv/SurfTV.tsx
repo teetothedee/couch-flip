@@ -307,6 +307,25 @@ export function SurfTV(_props: Props = {} as Props) {
     setStreamFailed(false);
   }, [channel?.id]);
 
+  // For Pluto channels, resolve the stitcher URL to a direct CDN variant URL
+  // server-side (follows redirects + unwraps the master playlist with the
+  // required Origin/Referer headers). Cached per channel id so we only pay
+  // the round trip once per session.
+  useEffect(() => {
+    if (!channel || channel.source !== "Pluto TV" || !channel.streamUrl) return;
+    if (plutoResolved[channel.id]) return;
+    let cancelled = false;
+    resolvePlutoFn({ data: { url: channel.streamUrl } })
+      .then(({ url }) => {
+        if (cancelled) return;
+        setPlutoResolved((m) => ({ ...m, [channel.id]: url }));
+      })
+      .catch((err) => console.error("[SurfTV] Pluto resolve failed", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [channel?.id, channel?.source, channel?.streamUrl, plutoResolved, resolvePlutoFn]);
+
   const handleStreamError = useCallback(() => setStreamFailed(true), []);
   const handleStreamReady = useCallback(() => setStreamFailed(false), []);
 
@@ -463,7 +482,11 @@ export function SurfTV(_props: Props = {} as Props) {
       {channel.streamUrl && !streamFailed && (
         <InlineStream
           key={channel.id}
-          src={channel.streamUrl}
+          src={
+            channel.source === "Pluto TV"
+              ? plutoResolved[channel.id] ?? channel.streamUrl
+              : channel.streamUrl
+          }
           muted={muted}
           proxy={channel.source === "Pluto TV"}
           onError={handleStreamError}
