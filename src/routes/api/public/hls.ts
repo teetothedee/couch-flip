@@ -9,13 +9,32 @@ const CORS = {
 
 // Only allow proxying to known streaming hosts to avoid SSRF abuse.
 const ALLOWED_HOST_SUFFIXES = [
+  // Pluto TV
   "pluto.tv",
   "plutotv.net",
+  "jmp2.uk",
+  // Common CDNs (used by Pluto, Tubi, and others)
   "cloudfront.net",
   "akamaized.net",
   "akamaihd.net",
   "fastly.net",
-  "jmp2.uk",
+  // Hi-YAH! / Frequency (Plex FAST channels) and AWS MediaTailor
+  "frequency.stream",
+  "amazonaws.com",
+  // Tubi and related CDNs
+  "tubitv.com",
+  "tubi.io",
+  "tubi.video",
+  "llnw.net",
+  "llnwd.net",
+  "edgecastcdn.net",
+  // Community stream aggregators
+  "streamlive.to",
+  "cdnapi.eu",
+  // Miscellaneous FAST channel CDNs
+  "wurl.tv",
+  "wurl.com",
+  "limelight.net",
 ];
 
 function hostAllowed(u: URL): boolean {
@@ -60,6 +79,44 @@ function rewriteManifest(text: string, playlistUrl: URL, selfOrigin: string): st
   return out.join("\n");
 }
 
+/**
+ * Returns true if the target host belongs to Pluto TV's infrastructure,
+ * including the jmp2.uk redirect service used in community M3U playlists.
+ */
+function isPlutoHost(u: URL): boolean {
+  const host = u.hostname.toLowerCase();
+  return ["pluto.tv", "plutotv.net", "jmp2.uk"].some(
+    (s) => host === s || host.endsWith("." + s),
+  );
+}
+
+/**
+ * Build upstream request headers appropriate for the target domain.
+ *
+ * - Pluto TV domains: spoof Origin + Referer to bypass their device check.
+ * - All other domains: send only generic browser headers so CDNs don't reject
+ *   an unexpected Origin header from a different service.
+ */
+function buildUpstreamHeaders(
+  targetUrl: URL,
+  rangeHeader: string | null,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    Accept: "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+  };
+
+  if (isPlutoHost(targetUrl)) {
+    headers["Referer"] = "https://pluto.tv/";
+    headers["Origin"] = "https://pluto.tv";
+  }
+
+  if (rangeHeader) headers["Range"] = rangeHeader;
+  return headers;
+}
+
 async function handle(request: Request): Promise<Response> {
   const reqUrl = new URL(request.url);
   const target = reqUrl.searchParams.get("url");
@@ -80,36 +137,39 @@ async function handle(request: Request): Promise<Response> {
     return new Response("Host not allowed", { status: 403, headers: CORS });
   }
 
-  const fwdHeaders: Record<string, string> = {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    Accept: "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    Referer: "https://pluto.tv/",
-    Origin: "https://pluto.tv",
-  };
-  const range = request.headers.get("range");
-  if (range) fwdHeaders["Range"] = range;
+  const fwdHeaders = buildUpstreamHeaders(targetUrl, request.headers.get("range"));
 
   let upstream: Response;
   try {
-    upstream = await fetch(targetUrl.toString(), { headers: fwdHeaders, redirect: "follow" });
+    upstream = await fetch(targetUrl.toString(), {
+      headers: fwdHeaders,
+      redirect: "follow",
+    });
   } catch (err) {
     console.error("hls proxy fetch failed:", err);
     return new Response("Upstream fetch failed", { status: 502, headers: CORS });
+  }
+
+  // After following redirects the final URL may differ — update targetUrl for
+  // header decisions and base-URL rewriting.
+  const finalUrlStr = upstream.url || targetUrl.toString();
+  let finalUrl: URL;
+  try {
+    finalUrl = new URL(finalUrlStr);
+  } catch {
+    finalUrl = targetUrl;
   }
 
   const ctype = (upstream.headers.get("content-type") ?? "").toLowerCase();
   const isManifest =
     ctype.includes("mpegurl") ||
     ctype.includes("application/x-mpegurl") ||
+    finalUrl.pathname.toLowerCase().endsWith(".m3u8") ||
     targetUrl.pathname.toLowerCase().endsWith(".m3u8");
 
   if (isManifest && upstream.ok) {
     const text = await upstream.text();
-    // Use the final URL (after redirects) as the base when available.
-    const baseUrl = new URL(upstream.url || targetUrl.toString());
-    const rewritten = rewriteManifest(text, baseUrl, reqUrl.origin);
+    const rewritten = rewriteManifest(text, finalUrl, reqUrl.origin);
     return new Response(rewritten, {
       status: upstream.status,
       headers: {
