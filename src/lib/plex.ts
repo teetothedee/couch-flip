@@ -12,6 +12,7 @@ const PLEX_HEADERS = {
   "X-Plex-Client-Identifier": CLIENT_ID,
   "X-Plex-Product": PRODUCT,
   "X-Plex-Platform": "Web",
+  "X-Plex-Version": "1.0.0",
   Accept: "application/json",
 };
 
@@ -58,7 +59,6 @@ async function checkPin(id: number): Promise<PlexPin> {
  * popup is not blocked. Resolves with the authToken once the user logs in.
  */
 export async function connectPlex(): Promise<string> {
-  // Open the popup synchronously so it inherits the user gesture.
   const popup = window.open("about:blank", "plex-auth", "width=520,height=720");
   if (!popup) throw new Error("Popup blocked — allow popups to connect Plex.");
 
@@ -75,12 +75,10 @@ export async function connectPlex(): Promise<string> {
   )}&code=${encodeURIComponent(pin.code)}&context%5Bdevice%5D%5Bproduct%5D=${encodeURIComponent(PRODUCT)}`;
   popup.location.href = authUrl;
 
-  // Poll every 2s for up to ~15 min.
   const start = Date.now();
   while (Date.now() - start < 15 * 60 * 1000) {
     if (popup.closed) {
-      // The user may have closed without finishing — keep polling a bit more
-      // in case the token is already issued.
+      /* keep polling briefly */
     }
     await new Promise((r) => setTimeout(r, 2000));
     try {
@@ -104,10 +102,8 @@ function colorFromString(s: string): string {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   const hue = Math.abs(h) % 360;
-  // Plex brand-ish saturated palette
   const sat = 65;
   const light = 48;
-  // hsl -> hex
   const a = (sat / 100) * Math.min(light / 100, 1 - light / 100);
   const f = (n: number) => {
     const k = (n + hue / 30) % 12;
@@ -119,99 +115,206 @@ function colorFromString(s: string): string {
   return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-type PlexHubsResponse = {
-  MediaContainer?: {
-    Hub?: Array<{
-      hubIdentifier?: string;
-      title?: string;
-      type?: string;
-      Metadata?: Array<{ title?: string; year?: number; genre?: string }>;
-    }>;
-  };
+// ---------------------------------------------------------------------------
+// Live-channel fetching — uses Plex's EPG provider for their free FAST lineup
+// ---------------------------------------------------------------------------
+
+const EPG_BASE = "https://epg.provider.plex.tv";
+const LINEAR_BASE = "https://linear.provider.plex.tv";
+
+type EpgSection = { key: string; type?: string; title?: string };
+type EpgItem = {
+  ratingKey?: string;
+  title?: string;
+  studio?: string;
+  thumb?: string;
+  Media?: Array<{
+    Part?: Array<{ key?: string }>;
+  }>;
 };
 
-type PlexResourcesResponse = Array<{
-  name?: string;
-  clientIdentifier?: string;
-  provides?: string;
-  owned?: boolean;
-  product?: string;
-}>;
+function buildStreamUrl(base: string, item: EpgItem, token: string): string | undefined {
+  const partKey = item.Media?.[0]?.Part?.[0]?.key;
+  if (!partKey) return undefined;
+
+  // Direct .m3u8 path — append token and return
+  if (partKey.includes(".m3u8")) {
+    const sep = partKey.includes("?") ? "&" : "?";
+    return (partKey.startsWith("http") ? partKey : `${base}${partKey}`) +
+      `${sep}X-Plex-Token=${encodeURIComponent(token)}&X-Plex-Client-Identifier=${CLIENT_ID}`;
+  }
+
+  // Non-.m3u8 key — route through Plex's HLS transcoder
+  const p = new URLSearchParams({
+    path: partKey,
+    hasMDE: "1",
+    mediaIndex: "0",
+    partIndex: "0",
+    protocol: "hls",
+    fastSeek: "1",
+    directPlay: "0",
+    directStream: "1",
+    copyts: "1",
+    "X-Plex-Platform": "Web",
+    "X-Plex-Product": PRODUCT,
+    "X-Plex-Client-Identifier": CLIENT_ID,
+    "X-Plex-Token": token,
+  });
+  return `${base}/video/:/transcode/universal/start.m3u8?${p}`;
+}
+
+/** Fetch Plex's free live/FAST channels from the EPG provider. */
+async function fetchEpgChannels(token: string): Promise<Channel[]> {
+  const headers = { ...PLEX_HEADERS, "X-Plex-Token": token };
+
+  // 1. Discover sections
+  let sections: EpgSection[] = [];
+  try {
+    const r = await fetch(`${EPG_BASE}/library/sections`, { headers });
+    if (r.ok) {
+      const d = await r.json();
+      sections = d?.MediaContainer?.Directory ?? [];
+      console.log(
+        "[Plex] EPG sections:",
+        sections.map((s) => ({ key: s.key, type: s.type, title: s.title })),
+      );
+    } else {
+      console.warn("[Plex] EPG /library/sections:", r.status);
+    }
+  } catch (err) {
+    console.warn("[Plex] EPG sections fetch failed:", err);
+  }
+
+  // Prefer a section explicitly typed/named "live"; fall back to first
+  const liveSection =
+    sections.find((s) => s.type === "live" || /live/i.test(s.title ?? "")) ??
+    sections[0];
+
+  if (!liveSection) {
+    console.warn("[Plex] No EPG section found");
+    return [];
+  }
+
+  // 2. Fetch channels from that section (type=1 = channel)
+  const channelsUrl =
+    `${EPG_BASE}/library/sections/${encodeURIComponent(liveSection.key)}/all` +
+    `?type=1&offset=0`;
+  let items: EpgItem[] = [];
+  try {
+    const r = await fetch(channelsUrl, { headers });
+    if (r.ok) {
+      const d = await r.json();
+      items = d?.MediaContainer?.Metadata ?? [];
+      console.log(`[Plex] EPG channels from section "${liveSection.key}": ${items.length}`);
+      if (items.length > 0) {
+        console.log("[Plex] EPG first channel sample:", JSON.stringify(items[0]).slice(0, 400));
+      }
+    } else {
+      const body = await r.text().catch(() => "");
+      console.warn("[Plex] EPG channels fetch:", r.status, body.slice(0, 200));
+    }
+  } catch (err) {
+    console.warn("[Plex] EPG channels fetch failed:", err);
+  }
+
+  return items
+    .map((item) => {
+      const streamUrl = buildStreamUrl(EPG_BASE, item, token);
+      const id = `plex-live:${item.ratingKey ?? item.title}`;
+      return {
+        id,
+        name: item.title ?? "Plex Channel",
+        emoji: "📺",
+        color: colorFromString(id),
+        source: "Plex",
+        genres: [item.studio ?? "Live TV"],
+        streamUrl,
+        defaultOff: true,
+        schedule: [{ title: item.title ?? "Live", genre: item.studio ?? "Live TV" }],
+      } satisfies Channel;
+    })
+    .filter((c) => !!c.streamUrl);
+}
 
 /**
- * Fetch free Plex streaming hubs and turn each hub into a Channel whose
- * "schedule" lists the next few items.
+ * Fetch Plex's linear / FAST-channel hubs.
+ * These are the always-on curated channels Plex streams for free.
  */
-export async function fetchPlexHubChannels(token: string): Promise<Channel[]> {
-  const res = await fetch("https://vod.provider.plex.tv/hubs", {
-    headers: { ...PLEX_HEADERS, "X-Plex-Token": token },
-  });
-  if (!res.ok) throw new Error(`Plex hubs failed (${res.status})`);
-  const data: PlexHubsResponse = await res.json();
-  console.log("[Plex] /hubs response:", data);
-  const hubs = data.MediaContainer?.Hub ?? [];
-  return hubs
-    .map((h) => {
-      const title = h.title || h.hubIdentifier || "Plex Hub";
-      const id = `plex:${h.hubIdentifier || title}`;
-      const meta = h.Metadata ?? [];
-      return {
+async function fetchLinearChannels(token: string): Promise<Channel[]> {
+  const headers = { ...PLEX_HEADERS, "X-Plex-Token": token };
+
+  type Hub = {
+    hubIdentifier?: string;
+    title?: string;
+    Metadata?: EpgItem[];
+    key?: string;
+  };
+
+  let hubs: Hub[] = [];
+  try {
+    const r = await fetch(`${LINEAR_BASE}/hubs?includeContent=1`, { headers });
+    if (r.ok) {
+      const d = await r.json();
+      hubs = d?.MediaContainer?.Hub ?? [];
+      console.log("[Plex] Linear hubs:", hubs.length);
+      if (hubs.length > 0) {
+        console.log("[Plex] Linear first hub sample:", JSON.stringify(hubs[0]).slice(0, 400));
+      }
+    } else {
+      console.warn("[Plex] Linear /hubs:", r.status);
+    }
+  } catch (err) {
+    console.warn("[Plex] Linear hubs fetch failed:", err);
+  }
+
+  const channels: Channel[] = [];
+  for (const hub of hubs) {
+    for (const item of hub.Metadata ?? []) {
+      const streamUrl = buildStreamUrl(LINEAR_BASE, item, token);
+      if (!streamUrl) continue;
+      const id = `plex-linear:${item.ratingKey ?? item.title}`;
+      channels.push({
         id,
-        name: title,
-        emoji: "🎞️",
+        name: item.title ?? hub.title ?? "Plex Channel",
+        emoji: "📺",
         color: colorFromString(id),
         source: "Plex",
-        genres: ["Plex"],
+        genres: [item.studio ?? "Live TV"],
+        streamUrl,
         defaultOff: true,
-        schedule:
-          meta.length > 0
-            ? meta.slice(0, 4).map((m) => ({
-                title: m.title ?? "Untitled",
-                year: m.year,
-                genre: m.genre,
-              }))
-            : [{ title: title, genre: "Plex Hub" }],
-      } satisfies Channel;
-    });
+        schedule: [{ title: item.title ?? "Live", genre: item.studio ?? "Live TV" }],
+      });
+    }
+  }
+  return channels;
 }
 
-/** Fetch the user's owned Plex media servers and map each to a Channel. */
-export async function fetchPlexServerChannels(token: string): Promise<Channel[]> {
-  const res = await fetch(
-    "https://plex.tv/api/v2/resources?includeHttps=1&includeRelay=1",
-    { headers: { ...PLEX_HEADERS, "X-Plex-Token": token } },
-  );
-  if (!res.ok) throw new Error(`Plex resources failed (${res.status})`);
-  const data: PlexResourcesResponse = await res.json();
-  console.log("[Plex] /resources response:", data);
-  return data
-    .filter((r) => (r.provides || "").includes("server"))
-    .map((r) => {
-      const id = `plex-server:${r.clientIdentifier || r.name}`;
-      const name = r.name || "Plex Server";
-      return {
-        id,
-        name,
-        emoji: "🗄️",
-        color: colorFromString(id),
-        source: "Plex",
-        genres: ["Plex Library"],
-        defaultOff: true,
-        schedule: [{ title: `${name} library`, genre: r.product || "Plex Media Server" }],
-      } satisfies Channel;
-    });
-}
-
+/**
+ * Main entry point called from SurfTV after login.
+ * Tries EPG live sections first, then falls back to linear hubs.
+ */
 export async function fetchAllPlexChannels(token: string): Promise<Channel[]> {
-  const [hubs, servers] = await Promise.all([
-    fetchPlexHubChannels(token).catch((e) => {
-      console.error("[Plex] hubs failed:", e);
+  const [epg, linear] = await Promise.all([
+    fetchEpgChannels(token).catch((e) => {
+      console.error("[Plex] EPG failed:", e);
       return [] as Channel[];
     }),
-    fetchPlexServerChannels(token).catch((e) => {
-      console.error("[Plex] resources failed:", e);
+    fetchLinearChannels(token).catch((e) => {
+      console.error("[Plex] Linear failed:", e);
       return [] as Channel[];
     }),
   ]);
-  return [...hubs, ...servers];
+
+  // Merge, deduplicate by id
+  const seen = new Set<string>();
+  const merged: Channel[] = [];
+  for (const ch of [...epg, ...linear]) {
+    if (!seen.has(ch.id)) {
+      seen.add(ch.id);
+      merged.push(ch);
+    }
+  }
+
+  console.log(`[Plex] total live channels: ${merged.length} (epg:${epg.length} linear:${linear.length})`);
+  return merged;
 }

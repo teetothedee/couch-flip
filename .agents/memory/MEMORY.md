@@ -1,0 +1,2 @@
+- [Plex EPG streams](plex-epg-streams.md) — correct endpoint for Plex free live TV; linear.provider.plex.tv is dead (ENOTFOUND)
+- [Pluto deviceId fix](pluto-deviceid.md) — Pluto requires a real UUID deviceId or returns "device not available"

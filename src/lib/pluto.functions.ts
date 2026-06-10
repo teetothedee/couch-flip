@@ -2,6 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import type { Channel, Show } from "./channels";
 
+// Generate a stable per-process UUID so Pluto's API returns stitcher URLs
+// with a valid deviceId. Without this the API returns deviceId=unknown in
+// every stitcher URL and the stitcher rejects playback with "device not
+// available on this device".
+const PLUTO_DEVICE_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+
 // Three Pluto channels we surface in Surf TV.
 // Mapping: exact Pluto channel name -> Surf TV presentation.
 const TARGETS: Record<
@@ -77,7 +89,7 @@ export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
     // (e.g. Cloudflare Workers in non-US PoPs).
     const url =
       `https://api.pluto.tv/v2/channels?start=${now.toISOString()}&stop=${stop.toISOString()}` +
-      `&deviceLat=40.71&deviceLon=-74.01&appName=web&appVersion=5.0.0&deviceType=web&deviceMake=Chrome&deviceModel=web&deviceVersion=1`;
+      `&deviceLat=40.71&deviceLon=-74.01&appName=web&appVersion=5.0.0&deviceType=web&deviceMake=Chrome&deviceModel=web&deviceVersion=1&deviceId=${PLUTO_DEVICE_ID}`;
     try {
       const res = await fetch(url, {
         headers: {

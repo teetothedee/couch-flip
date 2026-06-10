@@ -13,10 +13,10 @@ import { fetchArchiveChannels } from "../../lib/archive.functions";
 import { fetchTubiChannels } from "../../lib/tubi.functions";
 import {
   connectPlex,
-  fetchAllPlexChannels,
   getStoredPlexToken,
   setStoredPlexToken,
 } from "../../lib/plex";
+import { fetchAllPlexChannels } from "../../lib/plex.functions";
 
 const ACCENT = "#e85d26";
 const STORAGE_KEY = "surf-tv:state:v2";
@@ -234,7 +234,7 @@ export function SurfTV(_props: Props = {} as Props) {
     const existingToken = getStoredPlexToken();
     if (existingToken) {
       setPlexToken(existingToken);
-      fetchAllPlexChannels(existingToken)
+      fetchAllPlexChannels({ data: { token: existingToken } })
         .then((list) => setPlex(list))
         .catch((err) => {
           console.error("Could not load Plex channels:", err);
@@ -410,7 +410,7 @@ export function SurfTV(_props: Props = {} as Props) {
     try {
       const token = await connectPlex();
       setPlexToken(token);
-      const list = await fetchAllPlexChannels(token);
+      const list = await fetchAllPlexChannels({ data: { token } });
       setPlex(list);
       setToast(`Connected Plex · ${list.length} channels`);
     } catch (err) {

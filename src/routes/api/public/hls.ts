@@ -31,6 +31,9 @@ const ALLOWED_HOST_SUFFIXES = [
   // Community stream aggregators
   "streamlive.to",
   "cdnapi.eu",
+  // Plex streaming (epg.provider.plex.tv, linear.provider.plex.tv, etc.)
+  "plex.tv",
+  "plex.direct",
   // Miscellaneous FAST channel CDNs
   "wurl.tv",
   "wurl.com",
