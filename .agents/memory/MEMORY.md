@@ -1,2 +1,1 @@
-- [Plex EPG streams](plex-epg-streams.md) — correct endpoint, two stream bugs (transcoding on wrong server + X-Plex-Token stripped in proxy manifest rewrite)
-- [Pluto session + deviceId](pluto-deviceid.md) — Pluto requires boot.pluto.tv session token (sid) AND UUID deviceId; token cached 55 min; bust cache to force refresh
+- [Pluto TV datacenter IP restriction](pluto-ip-restriction.md) — regular stitcher serves error slate to cloud IPs; use jmp2.uk embed URLs instead

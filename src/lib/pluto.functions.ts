@@ -140,6 +140,7 @@ type PlutoTimeline = {
 };
 
 type PlutoChannel = {
+  _id?: string;
   name: string;
   slug?: string;
   category?: string;
@@ -188,10 +189,54 @@ function hslToHex(h: number, s: number, l: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// M3U URL map: channelId → jmp2.uk URL
+//
+// jmp2.uk redirects to Pluto's Samsung TV Plus embed stitcher
+// (/v2/stitch/embed/hls/) which uses a partner authToken — no IP restriction,
+// so it works from any server IP unlike the regular /v2/stitch/hls/ endpoint
+// which encodes the client IP in its JWT and returns takedown-slate content
+// for cloud/datacenter IPs.
+// ---------------------------------------------------------------------------
+
+const M3U_URL =
+  "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plutotv_us.m3u";
+
+async function fetchM3UUrlMap(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const res = await fetch(M3U_URL, { headers: { Accept: "text/plain", "User-Agent": "Mozilla/5.0" } });
+    if (!res.ok) return map;
+    const lines = (await res.text()).split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.startsWith("#EXTINF")) continue;
+      // channel-id="…" is the reliable Pluto channel ObjectId
+      const idMatch = /channel-id="([^"]+)"/.exec(line);
+      let streamUrl: string | undefined;
+      for (let j = i + 1; j < lines.length; j++) {
+        const next = lines[j].trim();
+        if (!next || next.startsWith("#")) continue;
+        streamUrl = next;
+        break;
+      }
+      if (!streamUrl) continue;
+      // Also try extracting channelId from the jmp2.uk URL itself as a fallback
+      const channelId =
+        idMatch?.[1] ?? streamUrl.match(/plu-([a-f0-9]{24})\.m3u8/i)?.[1];
+      if (channelId) map.set(channelId, streamUrl);
+    }
+    console.log(`[Pluto] M3U URL map: ${map.size} channel URLs`);
+  } catch (err) {
+    console.warn("[Pluto] M3U URL map fetch failed:", err);
+  }
+  return map;
+}
+
+// ---------------------------------------------------------------------------
 // Primary: Pluto channels API (with boot session)
 // ---------------------------------------------------------------------------
 
-async function fetchFromApi(sid: string): Promise<Channel[]> {
+async function fetchFromApi(sid: string, m3uUrls: Map<string, string>): Promise<Channel[]> {
   const now = new Date();
   const stop = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
@@ -228,8 +273,10 @@ async function fetchFromApi(sid: string): Promise<Channel[]> {
     const timelines = (c.timelines ?? []).slice(0, 4);
     if (timelines.length === 0) continue;
 
-    // Ensure sid is present in the stitcher URL
-    const streamUrl = withSid(hls.url, sid);
+    // Prefer jmp2.uk URL (Samsung TV Plus embed stitcher, no IP restriction).
+    // Fall back to the direct stitcher URL + sid only when no jmp2 entry found.
+    const jmp2Url = c._id ? m3uUrls.get(c._id) : undefined;
+    const streamUrl = jmp2Url ?? withSid(hls.url, sid);
 
     const meta = TARGETS[c.name];
     if (meta) {
@@ -345,15 +392,19 @@ async function fetchFromM3U(): Promise<Channel[]> {
 // ---------------------------------------------------------------------------
 
 async function fetchChannels(): Promise<Channel[]> {
-  let sid = "";
-  try {
-    sid = await getSessionToken();
-  } catch (err) {
-    console.warn("[Pluto] boot failed, continuing without session token:", err);
-  }
+  // Fetch the M3U URL map and boot token in parallel.
+  // The M3U provides jmp2.uk Samsung TV Plus embed URLs (no IP restriction);
+  // the boot token is still useful for any channels not in the M3U.
+  const [m3uUrls, sid] = await Promise.all([
+    fetchM3UUrlMap(),
+    getSessionToken().catch((err) => {
+      console.warn("[Pluto] boot failed, continuing without session token:", err);
+      return "";
+    }),
+  ]);
 
   try {
-    const channels = await fetchFromApi(sid);
+    const channels = await fetchFromApi(sid, m3uUrls);
     if (channels.length > 0) return channels;
     console.warn("[Pluto] API returned no channels, trying M3U fallback");
   } catch (err) {
