@@ -298,6 +298,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [streamFailed, setStreamFailed] = useState(false);
   const [streamKey, setStreamKey] = useState(0);
+  const [plutoRefreshing, setPlutoRefreshing] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -312,10 +313,12 @@ export function SurfTV(_props: Props = {} as Props) {
   // Reset failure state whenever the active channel/stream changes
   useEffect(() => {
     setStreamFailed(false);
+    setPlutoRefreshing(false);
   }, [channel?.id]);
 
   const handleStreamError = useCallback(() => {
     if (channel?.source === "Pluto TV") {
+      setPlutoRefreshing(true);
       refreshPlutoFn()
         .then((freshChannels) => {
           if (freshChannels.length > 0) {
@@ -326,7 +329,8 @@ export function SurfTV(_props: Props = {} as Props) {
             setStreamFailed(true);
           }
         })
-        .catch(() => setStreamFailed(true));
+        .catch(() => setStreamFailed(true))
+        .finally(() => setPlutoRefreshing(false));
       return;
     }
     setStreamFailed(true);
@@ -493,9 +497,15 @@ export function SurfTV(_props: Props = {} as Props) {
           onReady={handleStreamReady}
         />
       )}
-      {channel.streamUrl && streamFailed && (
+      {channel.streamUrl && streamFailed && !plutoRefreshing && (
         <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 text-xs uppercase tracking-[0.3em] text-white/45">
           Stream unavailable
+        </div>
+      )}
+      {plutoRefreshing && (
+        <div className="pointer-events-none absolute bottom-32 left-1/2 -translate-x-1/2 flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-white/60">
+          <span className="inline-block h-2 w-2 rounded-full bg-white/60 animate-pulse" />
+          Reconnecting
         </div>
       )}
 
