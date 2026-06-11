@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiPublicHlsRouteImport } from './routes/api/public/hls'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicHlsRoute = ApiPublicHlsRouteImport.update({
@@ -25,27 +31,31 @@ const ApiPublicHlsRoute = ApiPublicHlsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/public/hls': typeof ApiPublicHlsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/public/hls': typeof ApiPublicHlsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/public/hls': typeof ApiPublicHlsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/public/hls'
+  fullPaths: '/' | '/api/health' | '/api/public/hls'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/public/hls'
-  id: '__root__' | '/' | '/api/public/hls'
+  to: '/' | '/api/health' | '/api/public/hls'
+  id: '__root__' | '/' | '/api/health' | '/api/public/hls'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiPublicHlsRoute: typeof ApiPublicHlsRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hls': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiPublicHlsRoute: ApiPublicHlsRoute,
 }
 export const routeTree = rootRouteImport
