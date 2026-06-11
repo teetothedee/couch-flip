@@ -66,43 +66,21 @@ type EpgContainer = {
 // Stream URL construction
 // ---------------------------------------------------------------------------
 
-function transcodingUrl(path: string, token: string): string {
-  const p = new URLSearchParams({
-    path,
-    hasMDE: "1",
-    mediaIndex: "0",
-    partIndex: "0",
-    protocol: "hls",
-    fastSeek: "1",
-    directPlay: "0",
-    directStream: "1",
-    copyts: "1",
-    "X-Plex-Platform": "Web",
-    "X-Plex-Product": PRODUCT,
-    "X-Plex-Client-Identifier": CLIENT_ID,
-    "X-Plex-Token": token,
-  });
-  return `${EPG_BASE}/video/:/transcode/universal/start.m3u8?${p}`;
-}
 
 function buildStreamUrl(item: MediaItem, token: string): string | undefined {
-  // Option 1: explicit Media.Part.key (channel item with media directly attached)
   const partKey = item.Media?.[0]?.Part?.[0]?.key;
   if (partKey) {
-    if (partKey.includes(".m3u8")) {
-      const abs = partKey.startsWith("http") ? partKey : `${EPG_BASE}${partKey}`;
-      const sep = abs.includes("?") ? "&" : "?";
-      return `${abs}${sep}X-Plex-Token=${encodeURIComponent(token)}&X-Plex-Client-Identifier=${CLIENT_ID}`;
-    }
-    return transcodingUrl(partKey, token);
+    // Build an absolute URL for the part, always appending auth params.
+    // epg.provider.plex.tv serves live HLS directly from /library/parts/… paths.
+    // If the key already includes .m3u8 it's a direct manifest; otherwise Plex
+    // will redirect to one — the proxy follows redirects so either form works.
+    const abs = partKey.startsWith("http") ? partKey : `${EPG_BASE}${partKey}`;
+    const sep = abs.includes("?") ? "&" : "?";
+    return `${abs}${sep}X-Plex-Token=${encodeURIComponent(token)}&X-Plex-Client-Identifier=${CLIENT_ID}`;
   }
 
-  // Option 2: EPG episode — use item.key with transcoding endpoint
-  // "What's On Now" hub items have key=/library/metadata/{ratingKey}
-  if (item.key) {
-    return transcodingUrl(item.key, token);
-  }
-
+  // No media attached — skip. The transcoding endpoint on epg.provider.plex.tv
+  // is a metadata server, not a transcoder, and always returns errors.
   return undefined;
 }
 

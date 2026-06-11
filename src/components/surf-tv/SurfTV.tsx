@@ -207,6 +207,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const fetchTubiFn = useServerFn(fetchTubiChannels);
 
   // Hydrate persisted state + fetch real Pluto channels on mount.
+  // Also refresh every 30 minutes so the session token never expires mid-session.
   useEffect(() => {
     const s = loadStored();
     setOrder(s.order);
@@ -217,6 +218,11 @@ export function SurfTV(_props: Props = {} as Props) {
       .catch((err) => {
         console.error("Could not load Pluto channels:", err);
       });
+    const plutoInterval = setInterval(() => {
+      fetchPlutoFn()
+        .then((list) => setPluto(list))
+        .catch((err) => console.warn("Pluto background refresh failed:", err));
+    }, 30 * 60 * 1000);
     fetchHiyahFn()
       .then((list) => setHiyah(list))
       .catch((err) => {
@@ -241,6 +247,7 @@ export function SurfTV(_props: Props = {} as Props) {
           console.error("Could not load Plex channels:", err);
         });
     }
+    return () => clearInterval(plutoInterval);
   }, [fetchPlutoFn, fetchHiyahFn, fetchArchiveFn, fetchTubiFn]);
 
   const pool: Channel[] = useMemo(

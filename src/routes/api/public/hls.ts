@@ -49,7 +49,31 @@ function proxied(originalAbs: string, selfOrigin: string): string {
   return `${selfOrigin}/api/public/hls?url=${encodeURIComponent(originalAbs)}`;
 }
 
-function rewriteManifest(text: string, playlistUrl: URL, selfOrigin: string): string {
+/**
+ * Some upstreams (e.g. Plex) authenticate via query params like X-Plex-Token.
+ * When the proxy resolves a relative URL against the manifest base, those params
+ * are lost because URL resolution drops the base's query string.
+ * stickyParams are appended to every rewritten URL that doesn't already have them.
+ */
+function appendStickyParams(urlStr: string, sticky: URLSearchParams | undefined): string {
+  if (!sticky) return urlStr;
+  try {
+    const u = new URL(urlStr);
+    for (const [k, v] of sticky.entries()) {
+      if (!u.searchParams.has(k)) u.searchParams.set(k, v);
+    }
+    return u.toString();
+  } catch {
+    return urlStr;
+  }
+}
+
+function rewriteManifest(
+  text: string,
+  playlistUrl: URL,
+  selfOrigin: string,
+  stickyParams?: URLSearchParams,
+): string {
   const lines = text.split(/\r?\n/);
   const out: string[] = [];
   for (let line of lines) {
@@ -62,7 +86,7 @@ function rewriteManifest(text: string, playlistUrl: URL, selfOrigin: string): st
       // Rewrite URI="..." attributes (EXT-X-KEY, EXT-X-MAP, EXT-X-MEDIA, etc.)
       line = line.replace(/URI="([^"]+)"/g, (_m, uri) => {
         try {
-          const abs = new URL(uri, playlistUrl).toString();
+          const abs = appendStickyParams(new URL(uri, playlistUrl).toString(), stickyParams);
           return `URI="${proxied(abs, selfOrigin)}"`;
         } catch {
           return _m;
@@ -73,13 +97,18 @@ function rewriteManifest(text: string, playlistUrl: URL, selfOrigin: string): st
     }
     // Segment / variant playlist URL line
     try {
-      const abs = new URL(trimmed, playlistUrl).toString();
+      const abs = appendStickyParams(new URL(trimmed, playlistUrl).toString(), stickyParams);
       out.push(proxied(abs, selfOrigin));
     } catch {
       out.push(line);
     }
   }
   return out.join("\n");
+}
+
+function isPlexHost(u: URL): boolean {
+  const host = u.hostname.toLowerCase();
+  return host === "plex.tv" || host.endsWith(".plex.tv") || host.endsWith(".plex.direct");
 }
 
 /**
@@ -172,7 +201,19 @@ async function handle(request: Request): Promise<Response> {
 
   if (isManifest && upstream.ok) {
     const text = await upstream.text();
-    const rewritten = rewriteManifest(text, finalUrl, reqUrl.origin);
+    // For Plex: carry X-Plex-Token (and Client-Identifier) forward into every
+    // rewritten relative URL — URL resolution drops query params from the base.
+    let stickyParams: URLSearchParams | undefined;
+    if (isPlexHost(targetUrl)) {
+      const token = targetUrl.searchParams.get("X-Plex-Token");
+      const clientId = targetUrl.searchParams.get("X-Plex-Client-Identifier");
+      if (token || clientId) {
+        stickyParams = new URLSearchParams();
+        if (token) stickyParams.set("X-Plex-Token", token);
+        if (clientId) stickyParams.set("X-Plex-Client-Identifier", clientId);
+      }
+    }
+    const rewritten = rewriteManifest(text, finalUrl, reqUrl.origin, stickyParams);
     return new Response(rewritten, {
       status: upstream.status,
       headers: {

@@ -1,2 +1,2 @@
-- [Plex EPG streams](plex-epg-streams.md) — correct endpoint for Plex free live TV; linear.provider.plex.tv is dead (ENOTFOUND)
-- [Pluto deviceId fix](pluto-deviceid.md) — Pluto requires a real UUID deviceId or returns "device not available"
+- [Plex EPG streams](plex-epg-streams.md) — correct endpoint, two stream bugs (transcoding on wrong server + X-Plex-Token stripped in proxy manifest rewrite)
+- [Pluto session + deviceId](pluto-deviceid.md) — Pluto requires boot.pluto.tv session token (sid) AND UUID deviceId; token cached 55 min; bust cache to force refresh
