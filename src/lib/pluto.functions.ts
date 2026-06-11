@@ -344,24 +344,36 @@ async function fetchFromM3U(): Promise<Channel[]> {
 // Server function
 // ---------------------------------------------------------------------------
 
+async function fetchChannels(): Promise<Channel[]> {
+  let sid = "";
+  try {
+    sid = await getSessionToken();
+  } catch (err) {
+    console.warn("[Pluto] boot failed, continuing without session token:", err);
+  }
+
+  try {
+    const channels = await fetchFromApi(sid);
+    if (channels.length > 0) return channels;
+    console.warn("[Pluto] API returned no channels, trying M3U fallback");
+  } catch (err) {
+    console.error("[Pluto] API fetch failed:", err);
+  }
+
+  return fetchFromM3U();
+}
+
 export const fetchPlutoChannels = createServerFn({ method: "GET" }).handler(
+  async (): Promise<Channel[]> => fetchChannels(),
+);
+
+// Force-refresh: bust the cached session token so the next call gets a brand-new
+// sid — used when a Pluto stream fails mid-playback (expired session).
+export const refreshPlutoChannels = createServerFn({ method: "POST" }).handler(
   async (): Promise<Channel[]> => {
-    let sid = "";
-    try {
-      sid = await getSessionToken();
-    } catch (err) {
-      console.warn("[Pluto] boot failed, continuing without session token:", err);
-    }
-
-    try {
-      const channels = await fetchFromApi(sid);
-      if (channels.length > 0) return channels;
-      console.warn("[Pluto] API returned no channels, trying M3U fallback");
-    } catch (err) {
-      console.error("[Pluto] API fetch failed:", err);
-    }
-
-    return fetchFromM3U();
+    sessionCache = null;
+    console.log("[Pluto] session cache cleared — re-fetching with fresh token");
+    return fetchChannels();
   },
 );
 

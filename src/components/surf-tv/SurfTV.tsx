@@ -7,7 +7,7 @@ import {
   type Channel,
   type Show,
 } from "../../lib/channels";
-import { fetchPlutoChannels } from "../../lib/pluto.functions";
+import { fetchPlutoChannels, refreshPlutoChannels } from "../../lib/pluto.functions";
 import { fetchHiyahChannels } from "../../lib/hiyah.functions";
 import { fetchArchiveChannels } from "../../lib/archive.functions";
 import { fetchTubiChannels } from "../../lib/tubi.functions";
@@ -201,6 +201,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const [hydrated, setHydrated] = useState(false);
 
   const fetchPlutoFn = useServerFn(fetchPlutoChannels);
+  const refreshPlutoFn = useServerFn(refreshPlutoChannels);
   const fetchHiyahFn = useServerFn(fetchHiyahChannels);
   const fetchArchiveFn = useServerFn(fetchArchiveChannels);
   const fetchTubiFn = useServerFn(fetchTubiChannels);
@@ -289,6 +290,7 @@ export function SurfTV(_props: Props = {} as Props) {
   const [muted, setMuted] = useState(true);
   const [overlayVisible, setOverlayVisible] = useState(true);
   const [streamFailed, setStreamFailed] = useState(false);
+  const [streamKey, setStreamKey] = useState(0);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -305,7 +307,23 @@ export function SurfTV(_props: Props = {} as Props) {
     setStreamFailed(false);
   }, [channel?.id]);
 
-  const handleStreamError = useCallback(() => setStreamFailed(true), []);
+  const handleStreamError = useCallback(() => {
+    if (channel?.source === "Pluto TV") {
+      refreshPlutoFn()
+        .then((freshChannels) => {
+          if (freshChannels.length > 0) {
+            setPluto(freshChannels);
+            setStreamKey((k) => k + 1);
+            setStreamFailed(false);
+          } else {
+            setStreamFailed(true);
+          }
+        })
+        .catch(() => setStreamFailed(true));
+      return;
+    }
+    setStreamFailed(true);
+  }, [channel?.source, refreshPlutoFn]);
   const handleStreamReady = useCallback(() => setStreamFailed(false), []);
 
   const flip = useCallback(
@@ -460,7 +478,7 @@ export function SurfTV(_props: Props = {} as Props) {
       <ChannelBackground channel={channel} />
       {channel.streamUrl && !streamFailed && (
         <InlineStream
-          key={channel.id}
+          key={`${channel.id}:${streamKey}`}
           src={channel.streamUrl}
           muted={muted}
           proxy={channel.source !== "Internet Archive"}
